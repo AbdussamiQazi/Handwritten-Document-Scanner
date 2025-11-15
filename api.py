@@ -1,4 +1,4 @@
-# api.py - FastAPI Server for React Frontend
+# api.py - UPDATED CORS CONFIGURATION
 
 from fastapi import FastAPI, UploadFile, File, Form, WebSocket, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,29 +18,45 @@ import nest_asyncio
 nest_asyncio.apply()
 
 try:
-    from worker import process_job 
+    from worker import processJob  # Note: changed from process_job to processJob
 except ImportError:
     # Placeholder for local testing if worker.py is not in the same location
-    def process_job(*args, **kwargs):
+    def processJob(*args, **kwargs):
         return json.dumps({"formatted_text": "MOCK FORMATTED RESULT", "summary_text": "MOCK SUMMARY RESULT"})
-
 
 load_dotenv()
 
 # --- Configuration ---
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis = Redis.from_url(REDIS_URL, decode_responses=False)
-rq_queue = RQ_Queue(connection=redis, name='document_processing')
+
+# Import queue manager
+try:
+    from queueManager import extractionQueue, formattingQueue, getQueueStats
+    print("✅ Queue manager imported successfully")
+except ImportError as e:
+    print(f"❌ Failed to import queue manager: {e}")
+    # Fallback to single queue
+    extractionQueue = RQ_Queue(connection=redis, name='document_processing')
+    formattingQueue = extractionQueue
+    
+    def getQueueStats():
+        return {
+            'extraction': extractionQueue.count,
+            'formatting': 0,
+            'fallback': 0,
+            'total': extractionQueue.count
+        }
 
 app = FastAPI(title="Bolt AI Document API")
 
-# --- CORS Middleware (Required for React to talk to FastAPI) ---
+# --- FIXED CORS Middleware ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # WARNING: Use specific domains in production
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # Specific React dev server
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
 )
 
 # --- WebSocket Manager for Real-Time Push ---
@@ -70,7 +86,7 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# --- Redis Pub/Sub Listener (FIXED VERSION) ---
+# --- Redis Pub/Sub Listener ---
 def start_pubsub_listener():
     print("🔔 Starting PubSub listener for job completions...")
     pubsub_redis = Redis.from_url(REDIS_URL, decode_responses=True)
@@ -83,7 +99,6 @@ def start_pubsub_listener():
             try:
                 data = json.loads(message['data'])
                 
-                # Safe key access with defaults
                 user_id = data.get('user_id', 'unknown')
                 job_id = data.get('job_id', 'unknown')
                 job_type = data.get('job_type', 'unknown')
@@ -93,7 +108,6 @@ def start_pubsub_listener():
                 
                 print(f"📨 PubSub: Received completion - user_id={user_id}, job_id={job_id}, type={job_type}, success={success}")
                 
-                # Update status/stage based on job type
                 stage = 0
                 status = "finished" if success else "failed"
                 if job_type == 'extract':
@@ -101,7 +115,6 @@ def start_pubsub_listener():
                 elif job_type == 'format':
                     stage = 5 if success else 4
                 
-                # Create message for WebSocket
                 client_message = json.dumps({
                     "job_id": job_id,
                     "file_name": file_name,
@@ -112,9 +125,9 @@ def start_pubsub_listener():
                     "result": result
                 })
                 
-                print(f"📤 PubSub: Sending WS message to {user_id}")
+                print(f"🔍 DEBUG PubSub: Sending WS message - user_id={user_id}, job_type={job_type}, status={status}, stage={stage}")
+                #print(f"🔍 DEBUG PubSub: Full message: {client_message}")
                 
-                # Use asyncio to run in existing event loop (FIXED)
                 try:
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
@@ -132,24 +145,21 @@ def start_pubsub_listener():
 # Start the listener thread on application startup
 @app.on_event("startup")
 async def startup_event():
-    # Check Redis connection
     try:
         redis.ping()
         print("✅ Redis connection successful.")
     except Exception as e:
         print(f"❌ Redis connection failed: {e}. Check REDIS_URL environment variable.")
 
-    # Start PubSub listener in background thread
     thread = threading.Thread(target=start_pubsub_listener, daemon=True)
     thread.start()
     print("🚀 Background PubSub listener started")
-
 
 # --- API Routes ---
 
 @app.post("/api/upload")
 async def handle_upload(user_id: str = Form(...), files: List[UploadFile] = File(...)):
-    """Handles file upload and submits extract jobs to RQ."""
+    """Handles file upload and submits extract jobs to extraction queue."""
     if not files:
         raise HTTPException(status_code=400, detail="No files provided.")
 
@@ -159,7 +169,6 @@ async def handle_upload(user_id: str = Form(...), files: List[UploadFile] = File
     
     for file in files:
         print(f"📄 Processing file: {file.filename}")
-        # Convert file to base64 for RQ payload
         file_bytes = await file.read()
         file_data = {
             "name": file.filename,
@@ -167,18 +176,18 @@ async def handle_upload(user_id: str = Form(...), files: List[UploadFile] = File
             "mime_type": file.content_type
         }
         
-        # Submit job to RQ
-        job = rq_queue.enqueue(
-            process_job,
+        job = extractionQueue.enqueue(
+            processJob,
             'extract',
             [file_data],
             {
                 "user_id": user_id, 
                 "job_type": 'extract', 
                 "file_name": file.filename
-            },  # metadata as kwarg
-            job_timeout=600,
-            result_ttl=3600
+            },
+            job_timeout=300,
+            result_ttl=1800,
+            failure_ttl=3600
         )
         
         job_submissions.append({
@@ -193,7 +202,7 @@ async def handle_upload(user_id: str = Form(...), files: List[UploadFile] = File
 
 @app.post("/api/format")
 async def handle_format(data: Dict[str, str]):
-    """Submits the formatting and summarization job."""
+    """Submits the formatting and summarization job to formatting queue."""
     file_name = data.get("file_name")
     raw_text = data.get("raw_text")
     user_id = data.get("user_id", "default_user")
@@ -203,24 +212,64 @@ async def handle_format(data: Dict[str, str]):
 
     print(f"📝 Format request for {file_name} from user {user_id}")
 
-    # Submit job to RQ
-    job = rq_queue.enqueue(
-        process_job,
+    job = formattingQueue.enqueue(
+        processJob,
         'format',
         raw_text,
         {
             "user_id": user_id, 
             "job_type": 'format', 
             "file_name": file_name
-        },  # metadata as kwarg
-        job_timeout=600,
-        result_ttl=3600
+        },
+        job_timeout=300,
+        result_ttl=1800
     )
 
     print(f"✅ Enqueued formatting job {job.id} for {file_name}")
     
     return {"status": "success", "job_id": job.id, "file_name": file_name}
 
+# --- Monitoring Endpoints ---
+@app.get("/api/queue-stats")
+async def get_queue_stats():
+    """Get current queue statistics for monitoring"""
+    try:
+        stats = getQueueStats()
+        return {
+            "status": "success",
+            "queues": stats,
+            "timestamp": time.time(),
+            "message": "Queue statistics retrieved successfully"
+        }
+    except Exception as e:
+        print(f"❌ Error getting queue stats: {e}")
+        return {
+            "status": "error",
+            "queues": {
+                "extraction": 0,
+                "formatting": 0,
+                "fallback": 0,
+                "total": 0
+            },
+            "timestamp": time.time(),
+            "message": f"Error retrieving queue stats: {str(e)}"
+        }
+
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint"""
+    try:
+        redis.ping()
+        redis_status = "healthy"
+    except:
+        redis_status = "unhealthy"
+    
+    return {
+        "status": "success",
+        "redis": redis_status,
+        "timestamp": time.time(),
+        "version": "1.0"
+    }
 
 # --- WebSocket Endpoint ---
 @app.websocket("/ws/status/{user_id}")
@@ -228,18 +277,14 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
     """Real-time status updates via WebSocket."""
     print(f"🔌 WebSocket connection attempt for user: {user_id}")
     
-    # 1. Connect the client
     await manager.connect(websocket, user_id)
     print(f"✅ WebSocket connected for user: {user_id}")
     
     try:
-        # 2. Loop to listen for messages from the client (keeps connection alive)
         while True:
             try:
-                # We must await a receive operation to keep connection alive
                 message = await websocket.receive_text()
                 print(f"📥 Received from client {user_id}: {message}")
-                # Optional: Add logic to process client-sent messages if needed
             except Exception as e:
                 print(f"❌ WebSocket receive error for {user_id}: {e}")
                 break
@@ -248,7 +293,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
         print(f"❌ WebSocket connection error for {user_id}: {e}")
         
     finally:
-        # 3. Disconnect gracefully
         manager.disconnect(user_id)
         print(f"👋 WebSocket disconnected for user: {user_id}")
 

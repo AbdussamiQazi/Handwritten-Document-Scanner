@@ -56,11 +56,12 @@ const updateDocumentState = (update) => {
       edited_text: '',
       formatted_text: '',
       summary_text: '',
+      file_data: null, // Store file data for image preview
     };
   }
 
   const currentDoc = documents[fileKey];
-  console.log(`📊 Updating ${fileKey}: current stage=${currentDoc.stage}, new status=${update.status}`);
+  console.log(`📊 Updating ${fileKey}: current stage=${currentDoc.stage}, new status=${update.status}, job_type=${update.job_type}`);
 
   // Update logic based on job status
   if (update.job_type === 'extract' && update.status === 'finished') {
@@ -208,16 +209,130 @@ const StatusBadge = ({ stage, status }) => {
   );
 };
 
-// Component for Stage 3 Interaction
-const Stage3Editor = React.memo(({ fileKey, initialText, userId }) => {
+// Component for Stage 2 Extraction with Image Preview
+const Stage2Extraction = React.memo(({ fileKey, fileData }) => {
+  const [imageUrl, setImageUrl] = useState(null);
+  const isPDF = fileData?.mime_type === 'application/pdf' || fileKey?.toLowerCase().endsWith('.pdf');
+
+  useEffect(() => {
+    if (!isPDF && fileData && fileData.data_b64) {
+      // Create object URL from base64 data for image preview
+      const byteCharacters = atob(fileData.data_b64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: fileData.mime_type || 'image/jpeg' });
+      const url = URL.createObjectURL(blob);
+      setImageUrl(url);
+
+      // Cleanup function
+      return () => {
+        URL.revokeObjectURL(url);
+      };
+    }
+  }, [fileData, isPDF]);
+
+  return (
+    <div className="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+      <h4 className="text-xl font-semibold mb-3 text-yellow-700">🔍 Stage 2: Text Extraction in Progress</h4>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Image Preview or PDF Icon */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            {isPDF ? 'PDF Document' : 'Original Image'}
+          </label>
+          {isPDF ? (
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-white">
+              <div className="text-6xl text-red-500 mb-2">📄</div>
+              <p className="font-semibold text-gray-700">PDF Document</p>
+              <p className="text-sm text-gray-500 mt-1">Text extraction in progress...</p>
+              <p className="text-xs text-gray-400 mt-2">All pages will be processed</p>
+            </div>
+          ) : imageUrl ? (
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-2 bg-white">
+              <img 
+                src={imageUrl} 
+                alt="Document being processed" 
+                className="max-w-full h-auto rounded-lg shadow-sm max-h-80 object-contain mx-auto"
+              />
+              <p className="text-xs text-gray-500 text-center mt-2">
+                {fileData?.name || fileKey}
+              </p>
+            </div>
+          ) : (
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-white">
+              <p className="text-gray-500">Loading preview...</p>
+            </div>
+          )}
+        </div>
+        
+        {/* Extraction Status */}
+        <div className="flex flex-col justify-center">
+          <div className="text-center">
+            <svg className="animate-spin h-12 w-12 text-yellow-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p className="text-lg font-semibold text-yellow-700 mb-2">
+              {isPDF ? 'PDF Text Extraction' : 'AI Text Extraction'} in Progress
+            </p>
+            <p className="text-gray-600 mb-4">
+              {isPDF 
+                ? "We're extracting text from all pages of your PDF document. This may take a few moments..."
+                : "We're using Gemini AI to extract text from your document. This usually takes a few seconds..."
+              }
+            </p>
+            <div className="bg-white rounded-lg p-4 border border-yellow-200">
+              <p className="text-sm text-gray-700">
+                <span className="font-semibold">Processing:</span> {fileKey}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                {isPDF 
+                  ? "Compare the extracted text with your original PDF to verify accuracy"
+                  : "Compare the extracted text with the original image to verify accuracy"
+                }
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// Component for Stage 3 Interaction with Image Preview
+const Stage3Editor = React.memo(({ fileKey, initialText, userId, fileData }) => {
     // Local state for editing the text before submitting to formatting
     const [editedText, setEditedText] = useState(initialText);
     const [isFormatting, setIsFormatting] = useState(false);
-    
+    const [imageUrl, setImageUrl] = useState(null);
+    const isPDF = fileData?.mime_type === 'application/pdf' || fileKey?.toLowerCase().endsWith('.pdf');
+
     // Update local state when initialText changes (e.g., when extraction completes)
     useEffect(() => {
         setEditedText(initialText);
     }, [initialText]);
+
+    // Create image preview for non-PDF files
+    useEffect(() => {
+      if (!isPDF && fileData && fileData.data_b64) {
+        const byteCharacters = atob(fileData.data_b64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: fileData.mime_type || 'image/jpeg' });
+        const url = URL.createObjectURL(blob);
+        setImageUrl(url);
+
+        return () => {
+          URL.revokeObjectURL(url);
+        };
+      }
+    }, [fileData, isPDF]);
 
     const handleFormat = async () => {
         setIsFormatting(true);
@@ -265,10 +380,58 @@ const Stage3Editor = React.memo(({ fileKey, initialText, userId }) => {
     return (
         <div className="mt-4 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
             <h4 className="text-xl font-semibold mb-3 text-indigo-700">✏️ Stage 3: Review & Edit</h4>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4">
+                {/* Image Preview or PDF Icon */}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        {isPDF ? 'PDF Document Reference' : 'Original Document'}
+                    </label>
+                    {isPDF ? (
+                        <div className="border-2 border-gray-300 rounded-lg p-6 text-center bg-white">
+                            <div className="text-5xl text-red-500 mb-3">📄</div>
+                            <p className="font-semibold text-gray-700">PDF Document</p>
+                            <p className="text-sm text-gray-500">Compare extracted text with original PDF</p>
+                            <p className="text-xs text-gray-400 mt-2">All pages have been processed</p>
+                        </div>
+                    ) : imageUrl ? (
+                        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white">
+                            <img 
+                                src={imageUrl} 
+                                alt="Document for reference" 
+                                className="max-w-full h-auto rounded-lg shadow-sm max-h-80 object-contain mx-auto"
+                            />
+                            <p className="text-xs text-gray-500 text-center mt-2">
+                                Compare with extracted text below
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-white">
+                            <p className="text-gray-500">Document preview not available</p>
+                        </div>
+                    )}
+                </div>
+                
+                {/* Quick Tips */}
+                <div className="bg-white rounded-lg p-4 border border-indigo-200">
+                    <h5 className="font-semibold text-indigo-600 mb-2">💡 Editing Tips</h5>
+                    <ul className="text-sm text-gray-600 space-y-1">
+                        <li>• Correct any misread characters or words</li>
+                        <li>• Fix line breaks and paragraph structure</li>
+                        <li>• Verify numbers and special characters</li>
+                        <li>• Check for missing or duplicated text</li>
+                        {isPDF && <li>• Review text from all pages</li>}
+                    </ul>
+                </div>
+            </div>
+
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+                Extracted Text {isPDF ? '(from PDF)' : ''} (Edit if needed)
+            </label>
             <textarea
                 value={editedText}
                 onChange={(e) => setEditedText(e.target.value)}
-                rows="8"
+                rows="12"
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-sm resize-none"
                 placeholder="Review and correct extracted text here..."
             />
@@ -288,15 +451,36 @@ const Stage3Editor = React.memo(({ fileKey, initialText, userId }) => {
 });
 
 // Component for Stage 5 Output
-const Stage5Output = React.memo(({ fileKey, formattedText, summaryText }) => {
+const Stage5Output = React.memo(({ fileKey, formattedText, summaryText, fileData }) => {
     const [formattedEdit, setFormattedEdit] = useState(formattedText);
     const [summaryEdit, setSummaryEdit] = useState(summaryText);
+    const [imageUrl, setImageUrl] = useState(null);
+    const isPDF = fileData?.mime_type === 'application/pdf' || fileKey?.toLowerCase().endsWith('.pdf');
     
     // Update local state if the main data changes (e.g., re-formatting)
     useEffect(() => {
         setFormattedEdit(formattedText);
         setSummaryEdit(summaryText);
     }, [formattedText, summaryText]);
+
+    // Create image preview for non-PDF files
+    useEffect(() => {
+      if (!isPDF && fileData && fileData.data_b64) {
+        const byteCharacters = atob(fileData.data_b64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: fileData.mime_type || 'image/jpeg' });
+        const url = URL.createObjectURL(blob);
+        setImageUrl(url);
+
+        return () => {
+          URL.revokeObjectURL(url);
+        };
+      }
+    }, [fileData, isPDF]);
     
     // Function to download content as a blob/PDF
     const downloadBlob = (content, filename, mimeType) => {
@@ -314,6 +498,31 @@ const Stage5Output = React.memo(({ fileKey, formattedText, summaryText }) => {
     return (
         <div className="mt-4 p-4 bg-green-50 rounded-xl border border-green-200">
             <h4 className="text-xl font-semibold mb-3 text-green-700">✅ Stage 5: Final Output</h4>
+            
+            {/* Original Document Reference */}
+            <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Original Document Reference
+                </label>
+                {isPDF ? (
+                    <div className="border-2 border-gray-300 rounded-lg p-4 bg-white max-w-md">
+                        <div className="text-4xl text-red-500 text-center mb-2">📄</div>
+                        <p className="text-center text-sm text-gray-700">Original PDF Reference</p>
+                        <p className="text-center text-xs text-gray-500">All pages processed</p>
+                    </div>
+                ) : imageUrl ? (
+                    <div className="border-2 border-gray-300 rounded-lg p-2 bg-white max-w-md">
+                        <img 
+                            src={imageUrl} 
+                            alt="Original document" 
+                            className="max-w-full h-auto rounded-lg shadow-sm max-h-60 object-contain mx-auto"
+                        />
+                    </div>
+                ) : (
+                    <p className="text-sm text-gray-500">Original document reference not available</p>
+                )}
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Formatted Document</label>
@@ -351,7 +560,7 @@ const Stage5Output = React.memo(({ fileKey, formattedText, summaryText }) => {
 });
 
 // The main component that displays one document's workflow
-const DocumentCard = React.memo(({ fileKey, documentData }) => {
+const DocumentCard = React.memo(({ fileKey, documentData, fileData }) => {
     const { status, stage, extract_job_id, extracted_text, formatted_text, summary_text } = documentData;
     
     return (
@@ -366,14 +575,22 @@ const DocumentCard = React.memo(({ fileKey, documentData }) => {
                 {extract_job_id && <p>Job ID: <span className="font-mono text-xs">{extract_job_id}</span></p>}
             </div>
 
-            {/* Stage 2/4 Loading Spinner */}
-            {(stage === 2 || stage === 4) && (
+            {/* Stage 2 Extraction with Image Preview */}
+            {stage === 2 && (
+                <Stage2Extraction 
+                    fileKey={fileKey}
+                    fileData={fileData}
+                />
+            )}
+
+            {/* Stage 4 Loading Spinner */}
+            {stage === 4 && (
                 <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
                     <svg className="animate-spin h-8 w-8 text-indigo-500 mx-auto mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    <p className="text-gray-600">{stage === 2 ? 'Extracting text (AI vision processing)...' : 'AI Formatting and Summarization in progress...'}</p>
+                    <p className="text-gray-600">AI Formatting and Summarization in progress...</p>
                 </div>
             )}
             
@@ -382,7 +599,8 @@ const DocumentCard = React.memo(({ fileKey, documentData }) => {
                 <Stage3Editor 
                     fileKey={fileKey} 
                     initialText={extracted_text} 
-                    userId={USER_ID} 
+                    userId={USER_ID}
+                    fileData={fileData}
                 />
             )}
             
@@ -391,7 +609,8 @@ const DocumentCard = React.memo(({ fileKey, documentData }) => {
                 <Stage5Output 
                     fileKey={fileKey} 
                     formattedText={formatted_text} 
-                    summaryText={summary_text} 
+                    summaryText={summary_text}
+                    fileData={fileData}
                 />
             )}
 
@@ -407,6 +626,7 @@ const DocumentCard = React.memo(({ fileKey, documentData }) => {
 const App = () => {
     const { documents } = useDocumentStore();
     const [files, setFiles] = useState([]);
+    const [fileDataMap, setFileDataMap] = useState({});
     const [isUploading, setIsUploading] = useState(false);
     
     // Construct the dynamic WebSocket URL
@@ -426,10 +646,30 @@ const App = () => {
         if (files.length === 0) return;
         setIsUploading(true);
         
+        // Store file data for image preview
+        const newFileDataMap = { ...fileDataMap };
+        
         // Create form data payload for the API
         const formData = new FormData();
         formData.append('user_id', USER_ID);
-        files.forEach(file => formData.append('files', file));
+        
+        // Read files and store data for preview
+        for (const file of files) {
+            formData.append('files', file);
+            
+            // Store file data for preview
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const base64 = e.target.result.split(',')[1]; // Remove data:image/... prefix
+                newFileDataMap[file.name] = {
+                    name: file.name,
+                    data_b64: base64,
+                    mime_type: file.type
+                };
+                setFileDataMap(newFileDataMap);
+            };
+            reader.readAsDataURL(file);
+        }
 
         try {
             console.log('📤 Uploading files:', files.map(f => f.name));
@@ -481,12 +721,17 @@ const App = () => {
     });
 
     const DocumentCards = sortedDocuments.map(([fileKey, data]) => (
-        <DocumentCard key={fileKey} fileKey={fileKey} documentData={data} />
+        <DocumentCard 
+            key={fileKey} 
+            fileKey={fileKey} 
+            documentData={data} 
+            fileData={fileDataMap[fileKey]}
+        />
     ));
 
     return (
         <div className="min-h-screen bg-gray-50 p-8 font-sans">
-            <div className="max-w-6xl mx-auto"> {/* Increased max-width */}
+            <div className="max-w-6xl mx-auto">
                 <h1 className="text-4xl font-extrabold text-indigo-800 text-center mb-8">
                     Handwritten Document Processor
                 </h1>

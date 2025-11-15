@@ -1,13 +1,11 @@
-# worker.py - COMPLETE WORKER WITH EXTERNAL PROMPTS
+# worker.py - USING gemini-2.0-flash
 
 import os
 import sys
 import time
 import io
 import base64
-import math
 import random
-from datetime import timedelta
 import threading
 import json
 import logging
@@ -16,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from redis import Redis
-from rq import Queue, get_current_job
+from rq import get_current_job
 from dotenv import load_dotenv
 
 # image + pdf libs
@@ -27,8 +25,9 @@ from PIL import Image
 from google import genai
 from google.genai import types
 
-# Import prompts from separate file
+# Import prompts and queue manager
 from prompts import get_prompt
+from queueManager import getNextExtractionKey, getNextFormattingKey, getFallbackKey, getQueueStats
 
 load_dotenv()
 
@@ -36,109 +35,205 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # ---------- Configuration ----------
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-redis = Redis.from_url(REDIS_URL, decode_responses=False)
-rq_queue = Queue(connection=redis)
 
-# Use all 4 keys from your .env
-API_KEYS = [
-    os.getenv("GEMINI_API_KEY_1"), 
-    os.getenv("GEMINI_API_KEY_2"), 
-    os.getenv("GEMINI_API_KEY_3"),
-    os.getenv("GEMINI_API_KEY_4")
-]
-API_KEYS = [k for k in API_KEYS if k]
+# FIXED: Create Redis connection with proper decoding
+try:
+    redis_conn = Redis.from_url(REDIS_URL, decode_responses=False)
+    redis_conn.ping()
+    logger.info("✅ Redis connection successful!")
+except Exception as e:
+    logger.error(f"❌ Redis connection failed: {e}")
+    # Fallback to local Redis
+    REDIS_URL = "redis://localhost:6379/0"
+    redis_conn = Redis.from_url(REDIS_URL, decode_responses=False)
 
-# Tunables
-PER_KEY_LIMIT = int(os.getenv("PER_KEY_LIMIT", 60))
+# Separate concurrency limits
+EXTRACTION_CONCURRENCY = int(os.getenv("EXTRACTION_CONCURRENCY", 4))
+FORMATTING_CONCURRENCY = int(os.getenv("FORMATTING_CONCURRENCY", 2))
+FALLBACK_CONCURRENCY = int(os.getenv("FALLBACK_CONCURRENCY", 1))
+
+# Rate limits
+PER_KEY_LIMIT = int(os.getenv("PER_KEY_LIMIT", 85))
 WINDOW_SECONDS = int(os.getenv("WINDOW_SECONDS", 60))
-COOLDOWN_SECONDS = int(os.getenv("COOLDOWN_SECONDS", 90))
-CONCURRENCY_LIMIT = int(os.getenv("CONCURRENCY_LIMIT", 3))
+COOLDOWN_SECONDS = int(os.getenv("COOLDOWN_SECONDS", 75))
 
-# ---------- Redis-backed API manager ----------
-class APIManagerRedis:
-    def __init__(
-        self,
-        api_keys,
-        per_key_limit=60,
-        window_seconds=60,
-        cooldown_seconds=90,
-        concurrency_limit=3,
-        key_prefix="handwritten"
-    ):
-        self.api_keys = [k for k in api_keys if k]
-        self.per_key_limit = int(per_key_limit)
-        self.window_seconds = int(window_seconds)
-        self.cooldown_seconds = int(cooldown_seconds)
-        self.semaphore = threading.Semaphore(int(concurrency_limit)) 
-        self.key_prefix = key_prefix
+# Use gemini-2.5-flash (current available model)
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+logger.info(f"🔧 Using Gemini model: {GEMINI_MODEL}")
 
-    def _counter_bucket_key(self, key, bucket_ts):
-        return f"{self.key_prefix}:cnt:{self._short_key(key)}:{bucket_ts}"
+# ---------- Enhanced API Manager with Queue Support ----------
+class QueueAwareAPIManager:
+    def __init__(self, queue_type):
+        self.queue_type = queue_type
+        self.semaphore = self._getSemaphore(queue_type)
+        self.keyRotation = {
+            'extraction': getNextExtractionKey,
+            'formatting': getNextFormattingKey,
+            'fallback': getFallbackKey
+        }
+        
+    def _getSemaphore(self, queue_type):
+        if queue_type == 'extraction':
+            return threading.Semaphore(EXTRACTION_CONCURRENCY)
+        elif queue_type == 'formatting':
+            return threading.Semaphore(FORMATTING_CONCURRENCY)
+        else:
+            return threading.Semaphore(FALLBACK_CONCURRENCY)
     
-    def _cooldown_key(self, key):
-        return f"{self.key_prefix}:cd:{self._short_key(key)}"
-    
-    def _short_key(self, key):
-        return str(abs(hash(key)))[0:12]
-    
-    def _now_bucket(self):
-        return int(time.time()) // self.window_seconds
-
-    def try_acquire_key(self):
-        if not self.api_keys:
-            return None
-        bucket = self._now_bucket()
-        keys = list(self.api_keys)
-        random.shuffle(keys)
-        for key in keys:
-            if redis.get(self._cooldown_key(key)):
-                continue
-            bucket_key = self._counter_bucket_key(key, bucket)
-            count = redis.incr(bucket_key)
-            redis.expire(bucket_key, self.window_seconds + 5)
-            if int(count) <= self.per_key_limit:
+    def getApiKey(self):
+        key_func = self.keyRotation.get(self.queue_type)
+        if key_func:
+            key = key_func()
+            if key:
+                logger.info(f"🔑 Using key for {self.queue_type} queue")
                 return key
-            else:
-                redis.set(self._cooldown_key(key), "1", ex=self.cooldown_seconds)
-                continue
+        logger.error(f"❌ No API key function found for {self.queue_type}")
         return None
     
-    def mark_key_cooldown(self, key, cooldown_seconds=None):
-        ttl = int(cooldown_seconds) if cooldown_seconds else self.cooldown_seconds
-        redis.set(self._cooldown_key(key), "1", ex=ttl)
-
-    def all_keys_in_cooldown(self):
-        if not self.api_keys:
-            return True
-        for key in self.api_keys:
-            if not redis.get(self._cooldown_key(key)):
-                return False
-        return True
-
-    def acquire_slot(self, timeout=None):
+    def acquireSlot(self, timeout=10):
         return self.semaphore.acquire(timeout=timeout)
-
-    def release_slot(self):
+    
+    def releaseSlot(self):
         try:
             self.semaphore.release()
-        except Exception:
+        except:
             pass
+
+    # Rate limiting methods
+    def _counterBucketKey(self, key, bucket_ts):
+        return f"handwritten:cnt:{self._shortKey(key)}:{bucket_ts}"
+    
+    def _cooldownKey(self, key):
+        return f"handwritten:cd:{self._shortKey(key)}"
+    
+    def _shortKey(self, key):
+        return str(abs(hash(key)))[0:12]
+    
+    def _nowBucket(self):
+        return int(time.time()) // WINDOW_SECONDS
+
+    def tryAcquireKey(self):
+        key = self.getApiKey()
+        if not key:
+            logger.error(f"❌ No API key found for {self.queue_type} queue")
+            return None
             
-# Initialize API manager
-api_manager = APIManagerRedis(
-    api_keys=API_KEYS,
-    per_key_limit=PER_KEY_LIMIT,
-    window_seconds=WINDOW_SECONDS,
-    cooldown_seconds=COOLDOWN_SECONDS,
-    concurrency_limit=CONCURRENCY_LIMIT,
-    key_prefix=os.getenv("API_KEY_PREFIX", "handwritten") 
-)
+        bucket = self._nowBucket()
+        if redis_conn.get(self._cooldownKey(key)):
+            logger.warning(f"🔑 Key in cooldown for {self.queue_type} queue")
+            return None
+            
+        bucket_key = self._counterBucketKey(key, bucket)
+        count = redis_conn.incr(bucket_key)
+        redis_conn.expire(bucket_key, WINDOW_SECONDS + 5)
+        
+        if int(count) <= PER_KEY_LIMIT:
+            logger.info(f"✅ Using key for {self.queue_type} queue (count: {count})")
+            return key
+        else:
+            redis_conn.set(self._cooldownKey(key), "1", ex=COOLDOWN_SECONDS)
+            logger.warning(f"🔑 Rate limit exceeded for {self.queue_type} queue, cooling down")
+            return None
+    
+    def markKeyCooldown(self, key):
+        redis_conn.set(self._cooldownKey(key), "1", ex=COOLDOWN_SECONDS)
+
+# Global API managers
+extractionApiManager = QueueAwareAPIManager('extraction')
+formattingApiManager = QueueAwareAPIManager('formatting')
+fallbackApiManager = QueueAwareAPIManager('fallback')
+
+def getApiManager(job_type):
+    """Get the appropriate API manager for job type"""
+    if job_type == 'extract':
+        return extractionApiManager
+    elif job_type == 'format':
+        return formattingApiManager
+    else:
+        return fallbackApiManager
+
+# ---------- Enhanced Gemini Caller with Queue Awareness ----------
+def callGeminiSafe(parts, job_type, max_retries=5, base_delay=1.0):
+    """Enhanced caller with queue-specific API management"""
+    api_manager = getApiManager(job_type)
+    attempt = 0
+    
+    while attempt < max_retries:
+        attempt += 1
+        logger.info(f"🔄 Attempt {attempt}/{max_retries} for {job_type}")
+        
+        if not api_manager.acquireSlot(timeout=10):
+            logger.warning(f"⏳ No semaphore slot available for {job_type}, retrying...")
+            time.sleep(0.5 + random.random())
+            continue
+            
+        try:
+            key = api_manager.tryAcquireKey()
+            if not key:
+                api_manager.releaseSlot()
+                logger.warning(f"🔑 No available key for {job_type}, retrying...")
+                time.sleep(0.5 + random.random())
+                continue
+                
+            try:
+                logger.info(f"🔑 Using API key for {job_type} request")
+                client = genai.Client(api_key=key)
+                response = client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=[types.Content(parts=parts)]
+                )
+                text = getattr(response, "text", None) or getattr(response, "output_text", None) or None
+                if text:
+                    logger.info(f"✅ {job_type} API call successful, got {len(text)} chars")
+                    return text
+                else:
+                    logger.error("❌ Empty response from model")
+                    raise RuntimeError("Empty response from model")
+                    
+            except Exception as exc:
+                err = str(exc).lower()
+                logger.error(f"❌ API call error: {exc}")
+                if "rate limit" in err or "quota" in err or "429" in err:
+                    logger.warning(f"🔑 Key rate limited in {job_type} queue")
+                    api_manager.markKeyCooldown(key)
+                elif "api key" in err or "401" in err or "403" in err:
+                    logger.error(f"🔑 Invalid API key for {job_type} queue")
+                    api_manager.markKeyCooldown(key)
+                elif "not found" in err or "404" in err:
+                    logger.error(f"🔑 Model {GEMINI_MODEL} not found, trying gemini-1.5-flash")
+                    # Try fallback model
+                    try:
+                        client = genai.Client(api_key=key)
+                        response = client.models.generate_content(
+                            model="gemini-1.5-flash",
+                            contents=[types.Content(parts=parts)]
+                        )
+                        text = getattr(response, "text", None)
+                        if text:
+                            logger.info("✅ Fallback to gemini-1.5-flash successful")
+                            return text
+                    except:
+                        pass
+                wait = min(30, base_delay * (2 ** (attempt - 1))) + random.random()
+                logger.info(f"⏳ Waiting {wait:.1f}s before retry...")
+                time.sleep(wait)
+                continue
+                
+            finally:
+                api_manager.releaseSlot()
+                
+        except Exception as e:
+            logger.error(f"❌ Error in API call setup: {e}")
+            pass 
+            
+    logger.error(f"💥 All {max_retries} attempts failed for {job_type}")
+    return None
 
 # ---------- Utility helpers ----------
-def b64_to_bytes(b64_string):
+def b64ToBytes(b64_string):
     return base64.b64decode(b64_string)
 
-def resize_image_bytes(image_bytes, max_dim=1024, quality=85):
+def resizeImageBytes(image_bytes, max_dim=1024, quality=85):
     try:
         image = Image.open(io.BytesIO(image_bytes))
         image.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
@@ -152,9 +247,10 @@ def resize_image_bytes(image_bytes, max_dim=1024, quality=85):
         image.save(out, format="JPEG", quality=quality, optimize=True)
         return out.getvalue()
     except Exception as e:
+        logger.error(f"❌ Image resize failed: {e}")
         return image_bytes
 
-def render_pdf_to_images(pdf_bytes, dpi=200):
+def renderPdfToImages(pdf_bytes, dpi=200):
     images = []
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -165,18 +261,17 @@ def render_pdf_to_images(pdf_bytes, dpi=200):
             images.append((img_bytes, i+1))
         doc.close()
     except Exception as e:
-        logger.error(f"PDF rendering failed: {e}")
+        logger.error(f"❌ PDF rendering failed: {e}")
         return []
     return images
 
 # ---------- Pub/Sub Notification Function ----------
-def notify_job_completion(job_id, job_type, user_id, file_name, success=True, result=None):
+def notifyJobCompletion(job_id, job_type, user_id, file_name, success=True, result=None):
     """Notify FastAPI server that a job has completed by pushing to Redis Pub/Sub."""
     try:
-        # Create a pub/sub connection
+        # FIXED: Use the same Redis connection parameters
         pub_redis = Redis.from_url(REDIS_URL, decode_responses=True)
         
-        # Publish completion event
         message = {
             'job_id': job_id,
             'job_type': job_type,
@@ -187,113 +282,83 @@ def notify_job_completion(job_id, job_type, user_id, file_name, success=True, re
             'timestamp': time.time()
         }
         
-        # The FastAPI server (api.py) subscribes to 'job_completions'
         pub_redis.publish('job_completions', json.dumps(message))
-        logger.info(f"📢 Published job completion: {job_id} for {file_name} (success: {success})")
+        logger.info(f"📢 Published {job_type} completion: {job_id} for {file_name}, success: {success}")
         
     except Exception as e:
         logger.error(f"❌ Failed to publish job completion: {e}")
 
-# ---------- Gemini safe caller ----------
-def call_gemini_safe(parts, max_retries=5, base_delay=1.0):
-    attempt = 0
-    while attempt < max_retries:
-        attempt += 1
-        if api_manager.all_keys_in_cooldown():
-            wait = min(10, base_delay * (2 ** (attempt - 1))) + random.random()
-            time.sleep(wait)
-            continue
-        if not api_manager.acquire_slot(timeout=10):
-            time.sleep(0.5 + random.random())
-            continue
-        try:
-            key = api_manager.try_acquire_key()
-            if not key:
-                api_manager.release_slot()
-                time.sleep(0.5 + random.random())
-                continue
-            try:
-                client = genai.Client(api_key=key)
-                response = client.models.generate_content(
-                    model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-                    contents=[types.Content(parts=parts)]
-                )
-                text = getattr(response, "text", None) or getattr(response, "output_text", None) or None
-                if text:
-                    return text
-                else:
-                    raise RuntimeError("Empty response from model")
-            except Exception as exc:
-                err = str(exc).lower()
-                if "rate limit" in err or "quota" in err or "429" in err:
-                    api_manager.mark_key_cooldown(key)
-                wait = min(30, base_delay * (2 ** (attempt - 1))) + random.random()
-                time.sleep(wait)
-                continue
-            finally:
-                api_manager.release_slot()
-        except Exception:
-            pass 
-    return None
-
-# ---------- Extraction/Format/Summarize Functions (USING EXTERNAL PROMPTS) ----------
-def extract_text_from_image_bytes(image_bytes):
+# ---------- Extraction/Format/Summarize Functions ----------
+def extractTextFromImageBytes(image_bytes):
+    logger.info(f"🔍 Extracting text from image ({len(image_bytes)} bytes)")
+    
     if len(image_bytes) > (5 * 1024 * 1024):
-        image_bytes = resize_image_bytes(image_bytes, max_dim=1200)
+        logger.info("🖼️ Resizing large image...")
+        image_bytes = resizeImageBytes(image_bytes, max_dim=1200)
+    
     blob_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    logger.info(f"🖼️ Image encoded to base64 ({len(blob_b64)} chars)")
+    
     parts = [
-        types.Part(text=get_prompt("extraction")),  # Using external prompt
+        types.Part(text=get_prompt("extraction")),
         types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=blob_b64))
     ]
-    txt = call_gemini_safe(parts, max_retries=6)
+    
+    logger.info("📤 Sending to Gemini API...")
+    txt = callGeminiSafe(parts, 'extract', max_retries=6)
+    
     if txt is None:
+        logger.error("❌ Extraction failed - no response from API")
         return "[UNREADABLE OR API FAILURE]"
-    return txt
+    elif txt.startswith("[UNREADABLE") or len(txt.strip()) < 10:
+        logger.warning(f"⚠️ Extraction may have failed: {txt[:100]}...")
+        return txt
+    else:
+        logger.info(f"✅ Extraction successful: {len(txt)} characters")
+        return txt
 
-def format_document(raw_text):
-    parts = [types.Part(text=get_prompt("formatting") + "\n\n" + raw_text)]  # Using external prompt
-    return call_gemini_safe(parts, max_retries=4)
+def formatDocument(raw_text):
+    logger.info(f"📝 Formatting document ({len(raw_text)} chars)")
+    parts = [types.Part(text=get_prompt("formatting") + "\n\n" + raw_text)]
+    return callGeminiSafe(parts, 'format', max_retries=4)
 
-def summarize_document(raw_text):
-    parts = [types.Part(text=get_prompt("summarization") + "\n\n" + raw_text)]  # Using external prompt
-    return call_gemini_safe(parts, max_retries=4)
+def summarizeDocument(raw_text):
+    logger.info(f"📋 Summarizing document ({len(raw_text)} chars)")
+    parts = [types.Part(text=get_prompt("summarization") + "\n\n" + raw_text)]
+    return callGeminiSafe(parts, 'format', max_retries=4)
 
 # ---------- RQ JOB ROUTER ----------
-# worker.py - FIXED FUNCTION SIGNATURE
-
-# ... (all your imports and other code remains the same)
-
-# ---------- RQ JOB ROUTER (FIXED SIGNATURE) ----------
-def process_job(job_type, payload, metadata=None):
+def processJob(job_type, payload, metadata=None):
     """Main job processing function called by RQ worker"""
-    # RQ automatically passes the job as first argument, so we need to adjust
     if metadata is None:
         metadata = {}
     
-    # Get the current job from RQ context to access job_id
+    # FIX: Get job ID properly
     job = get_current_job()
-    job_id = job.id if job else "UNKNOWN_JOB"
-
-    logger.info(f"🔧 Starting job {job_id}")
-    logger.info(f"🔧 Job type: {job_type}, Metadata: {metadata}")
+    if job:
+        job_id = job.id
+        logger.info(f"🔧 Starting {job_type} job {job_id}")
+    else:
+        job_id = "UNKNOWN_JOB"
+        logger.warning(f"⚠️ Starting {job_type} job with unknown ID")
     
     final_result = None
     success = False
     user_id = metadata.get('user_id', 'unknown')
     file_name = metadata.get('file_name', 'unknown')
+    metadata_job_type = metadata.get('job_type', job_type)
 
     try:
-        logger.info(f"🚀 Starting {job_type.upper()} job {job_id} for {file_name} (user: {user_id})")
+        logger.info(f"🚀 Processing {file_name} (user: {user_id})")
         
         if job_type == 'extract':
             files_serialized = payload
             if not files_serialized:
                 final_result = "ERROR: No file data provided"
                 success = False
+                logger.error("❌ No files provided in payload")
             else:
                 f = files_serialized[0]
-                
-                logger.info(f"🔧 Processing file: {file_name} for user: {user_id}")
                 
                 mime = f.get("mime_type", "image/png")
                 data_b64 = f.get("data_b64")
@@ -301,38 +366,49 @@ def process_job(job_type, payload, metadata=None):
                 if not data_b64:
                     final_result = f"ERROR: No data for {file_name}"
                     success = False
+                    logger.error(f"❌ No base64 data for {file_name}")
                 else:
-                    raw_bytes = b64_to_bytes(data_b64)
+                    logger.info(f"📄 Processing {mime} file: {file_name}")
+                    raw_bytes = b64ToBytes(data_b64)
                     overall_text = ""
 
                     if mime == "application/pdf" or file_name.lower().endswith(".pdf"):
                         logger.info(f"📄 Processing PDF: {file_name}")
-                        pages = render_pdf_to_images(raw_bytes, dpi=200)
+                        pages = renderPdfToImages(raw_bytes, dpi=200)
                         if not pages:
                             overall_text = f"--- {file_name} | PDF FAILURE: NO PAGES EXTRACTED ---\n\n"
                             success = False
+                            logger.error(f"❌ Failed to render PDF: {file_name}")
                         else:
                             logger.info(f"📄 PDF has {len(pages)} pages")
                             for page_bytes, pno in pages:
                                 logger.info(f"🔍 Extracting text from page {pno}")
-                                txt = extract_text_from_image_bytes(page_bytes)
+                                txt = extractTextFromImageBytes(page_bytes)
                                 overall_text += f"--- {file_name} | page {pno} ---\n{txt}\n\n"
                                 time.sleep(random.uniform(0.8, 1.5))
                             success = True
+                            logger.info(f"✅ PDF extraction completed: {file_name}")
                     else:
                         logger.info(f"🖼️ Processing image: {file_name}")
-                        txt = extract_text_from_image_bytes(raw_bytes)
+                        txt = extractTextFromImageBytes(raw_bytes)
                         overall_text = f"--- {file_name} ---\n{txt}\n\n"
                         time.sleep(random.uniform(0.8, 1.5))
-                        success = True if not txt.startswith("[UNREADABLE") else False
+                        
+                        # FIX: Better success detection
+                        if txt and not txt.startswith("[UNREADABLE") and len(txt.strip()) > 10:
+                            success = True
+                            logger.info(f"✅ Image extraction successful: {file_name}")
+                        else:
+                            success = False
+                            logger.warning(f"⚠️ Image extraction may have failed: {file_name}")
                     
                     final_result = overall_text
         
         elif job_type == 'format':
             logger.info(f"📝 Formatting document: {file_name}")
             raw_text = payload
-            formatted = format_document(raw_text) or raw_text
-            summary = summarize_document(raw_text) or ""
+            formatted = formatDocument(raw_text) or raw_text
+            summary = summarizeDocument(raw_text) or ""
             
             final_result = json.dumps({
                 "formatted_text": formatted,
@@ -341,39 +417,43 @@ def process_job(job_type, payload, metadata=None):
             success = True
         
         else:
-            final_result = json.dumps({"error": "unknown_job_type", "message": f"Job type '{job_type}' not recognized."})
+            final_result = json.dumps({"error": "unknown_job_type"})
             success = False
-            logger.warning(f"⚠️ Job {job_id} received unknown job_type: {job_type}")
 
     except Exception as e:
-        logger.error(f"❌ Job {job_id} failed with error: {e}", exc_info=True)
+        logger.error(f"❌ Job {job_id} failed: {e}")
+        import traceback
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         final_result = f"FATAL_WORKER_ERROR: {str(e)}"
         success = False
-        
-        if api_manager.all_keys_in_cooldown():
-            logger.warning("🔒 All API keys in cooldown - consider increasing limits")
     
     finally:
-        # Always notify completion
-        notify_job_completion(job_id, job_type, user_id, file_name, success, final_result)
-        logger.info(f"✅ Finished {job_type.upper()} job {job_id}. Success: {success}")
+        # Enhanced monitoring
+        try:
+            queue_stats = getQueueStats()
+            logger.info(f"📊 Queue Stats: {queue_stats}")
+        except Exception as e:
+            logger.error(f"❌ Failed to get queue stats: {e}")
+        
+        # FIXED: Use metadata job_type and ensure success is properly set
+        logger.info(f"📤 Notifying completion: job_id={job_id}, success={success}")
+        notifyJobCompletion(job_id, metadata_job_type, user_id, file_name, success, final_result)
+        logger.info(f"✅ Finished {job_type} job {job_id}. Success: {success}")
         
         return final_result
 
-# For testing directly
+# For testing
 if __name__ == "__main__":
     print("🧪 Testing worker functions...")
     
-    # Test with mock data
     test_metadata = {
         "user_id": "test_user",
         "job_type": "extract", 
         "file_name": "test.pdf"
     }
     
-    # Test extraction with a small job
     try:
-        result = process_job('extract', [], job_id='test_job', metadata=test_metadata)
+        result = processJob('extract', [], metadata=test_metadata)
         print(f"Test result: {result}")
     except Exception as e:
         print(f"Test failed: {e}")
