@@ -1,0 +1,15 @@
+# Dependencies for the FastAPI Server (api.py)
+fastapi
+uvicorn[standard]  # ASGI server for running FastAPI
+python-dotenv      # For loading environment variables (e.g., GEMINI_API_KEYs, REDIS_URL)
+redis              # Primary interface for Redis and Pub/Sub
+rq                 # Redis Queue job submission library
+pydantic           # Data validation framework used by FastAPI
+
+# Dependencies for the RQ Worker (worker.py)
+google-genai       # Official SDK for calling the Gemini models
+Pillow             # For image resizing and handling (used in helper functions)
+PyMuPDF            # Used by 'fitz' for reliably rendering PDF pages to images
+fpdf2              # For creating the final PDF reports (formatted and summary)
+numpy              # Often a dependency for image/data processing libraries
+httpx              # Used internally by the google-genai library
