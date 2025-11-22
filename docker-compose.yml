@@ -4,6 +4,7 @@ services:
   # NOTE: The local 'redis' service definition is removed.
   # All services connect to the external REDIS_URL provided in your .env file.
 
+
   # 1. API Service (FastAPI) - Handles HTTP/WebSockets
   api:
     build: .
