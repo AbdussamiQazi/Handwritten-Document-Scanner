@@ -192,19 +192,37 @@ const useWebSocket = (url, onMessage) => {
 
 const StatusBadge = ({ stage, status }) => {
   let color = 'bg-gray-200 text-gray-700';
-  if (status === 'queued' || stage === 1) color = 'bg-blue-100 text-blue-600';
-  if (status === 'started' || stage === 2 || stage === 4) color = 'bg-yellow-100 text-yellow-600 animate-pulse';
-  if (status === 'editing' || stage === 3) color = 'bg-indigo-100 text-indigo-600';
-  if (status === 'completed' || stage === 5) color = 'bg-green-500 text-white';
-  if (status === 'failed') color = 'bg-red-500 text-white';
+  let icon = '⏳';
+
+  if (status === 'queued' || stage === 1) {
+    color = 'bg-blue-100 text-blue-700';
+    icon = '📤';
+  }
+  if (status === 'started' || stage === 2 || stage === 4) {
+    color = 'bg-amber-100 text-amber-700 animate-pulse';
+    icon = '⚙️';
+  }
+  if (status === 'editing' || stage === 3) {
+    color = 'bg-sky-100 text-sky-700';
+    icon = '✏️';
+  }
+  if (status === 'completed' || stage === 5) {
+    color = 'bg-emerald-500 text-white';
+    icon = '✓';
+  }
+  if (status === 'failed') {
+    color = 'bg-red-500 text-white';
+    icon = '✕';
+  }
 
   const stageNames = {
-    1: "Uploaded", 2: "Extracting", 3: "Review & Edit", 4: "Formatting", 5: "Completed"
+    1: "Uploaded", 2: "Extracting Text", 3: "Ready to Review", 4: "Formatting", 5: "Complete"
   };
-  
+
   return (
-    <div className={`px-3 py-1 text-sm font-semibold rounded-full ${color}`}>
-      {stageNames[stage] || status.toUpperCase()}
+    <div className={`px-4 py-2 text-sm font-semibold rounded-full ${color} flex items-center gap-2 shadow-sm`}>
+      <span>{icon}</span>
+      <span>{stageNames[stage] || status.toUpperCase()}</span>
     </div>
   );
 };
@@ -235,8 +253,11 @@ const Stage2Extraction = React.memo(({ fileKey, fileData }) => {
   }, [fileData, isPDF]);
 
   return (
-    <div className="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-      <h4 className="text-xl font-semibold mb-3 text-yellow-700">🔍 Stage 2: Text Extraction in Progress</h4>
+    <div className="mt-4 p-6 bg-amber-50 rounded-xl border-2 border-amber-200 shadow-sm">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="text-3xl">🔍</div>
+        <h4 className="text-xl font-semibold text-amber-800">Extracting Text from Your Document</h4>
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Image Preview or PDF Icon */}
         <div>
@@ -271,20 +292,20 @@ const Stage2Extraction = React.memo(({ fileKey, fileData }) => {
         {/* Extraction Status */}
         <div className="flex flex-col justify-center">
           <div className="text-center">
-            <svg className="animate-spin h-12 w-12 text-yellow-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <svg className="animate-spin h-16 w-16 text-amber-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <p className="text-lg font-semibold text-yellow-700 mb-2">
-              {isPDF ? 'PDF Text Extraction' : 'AI Text Extraction'} in Progress
+            <p className="text-xl font-bold text-amber-800 mb-2">
+              {isPDF ? 'Reading Your PDF' : 'Reading Your Document'}
             </p>
-            <p className="text-gray-600 mb-4">
-              {isPDF 
-                ? "We're extracting text from all pages of your PDF document. This may take a few moments..."
-                : "We're using Gemini AI to extract text from your document. This usually takes a few seconds..."
+            <p className="text-gray-700 mb-4 text-base">
+              {isPDF
+                ? "Please wait while we extract text from all pages. This usually takes a few moments."
+                : "Our AI is reading the text from your document. This typically completes in seconds."
               }
             </p>
-            <div className="bg-white rounded-lg p-4 border border-yellow-200">
+            <div className="bg-white rounded-lg p-4 border-2 border-amber-200 shadow-sm">
               <p className="text-sm text-gray-700">
                 <span className="font-semibold">Processing:</span> {fileKey}
               </p>
@@ -378,8 +399,14 @@ const Stage3Editor = React.memo(({ fileKey, initialText, userId, fileData }) => 
     };
 
     return (
-        <div className="mt-4 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
-            <h4 className="text-xl font-semibold mb-3 text-indigo-700">✏️ Stage 3: Review & Edit</h4>
+        <div className="mt-4 p-6 bg-blue-50 rounded-xl border-2 border-blue-200 shadow-sm">
+            <div className="flex items-center gap-3 mb-4">
+                <div className="text-3xl">✏️</div>
+                <div>
+                    <h4 className="text-xl font-semibold text-blue-800">Review and Edit Your Text</h4>
+                    <p className="text-sm text-blue-600">Check the extracted text and make any corrections needed</p>
+                </div>
+            </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4">
                 {/* Image Preview or PDF Icon */}
@@ -413,38 +440,42 @@ const Stage3Editor = React.memo(({ fileKey, initialText, userId, fileData }) => 
                 </div>
                 
                 {/* Quick Tips */}
-                <div className="bg-white rounded-lg p-4 border border-indigo-200">
-                    <h5 className="font-semibold text-indigo-600 mb-2">💡 Editing Tips</h5>
-                    <ul className="text-sm text-gray-600 space-y-1">
-                        <li>• Correct any misread characters or words</li>
-                        <li>• Fix line breaks and paragraph structure</li>
-                        <li>• Verify numbers and special characters</li>
-                        <li>• Check for missing or duplicated text</li>
-                        {isPDF && <li>• Review text from all pages</li>}
+                <div className="bg-white rounded-lg p-5 border-2 border-blue-200 shadow-sm">
+                    <div className="flex items-center gap-2 mb-3">
+                        <span className="text-2xl">💡</span>
+                        <h5 className="font-semibold text-blue-700 text-base">Helpful Tips</h5>
+                    </div>
+                    <ul className="text-sm text-gray-700 space-y-2 leading-relaxed">
+                        <li className="flex items-start gap-2"><span className="text-blue-500 font-bold">•</span><span>Fix any incorrect letters or words</span></li>
+                        <li className="flex items-start gap-2"><span className="text-blue-500 font-bold">•</span><span>Adjust spacing and paragraph breaks</span></li>
+                        <li className="flex items-start gap-2"><span className="text-blue-500 font-bold">•</span><span>Double-check numbers and symbols</span></li>
+                        <li className="flex items-start gap-2"><span className="text-blue-500 font-bold">•</span><span>Look for any missing text</span></li>
+                        {isPDF && <li className="flex items-start gap-2"><span className="text-blue-500 font-bold">•</span><span>Review all pages carefully</span></li>}
                     </ul>
                 </div>
             </div>
 
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-                Extracted Text {isPDF ? '(from PDF)' : ''} (Edit if needed)
+            <label className="block text-base font-semibold text-gray-800 mb-2">
+                {isPDF ? 'Text from Your PDF' : 'Text from Your Document'}
             </label>
+            <p className="text-sm text-gray-600 mb-2">Make any corrections you need, then click the button below to continue</p>
             <textarea
                 value={editedText}
                 onChange={(e) => setEditedText(e.target.value)}
                 rows="12"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-sm resize-none"
-                placeholder="Review and correct extracted text here..."
+                className="w-full p-4 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base resize-none shadow-sm"
+                placeholder="Review and correct the extracted text here..."
             />
             <button
                 onClick={handleFormat}
                 disabled={isFormatting}
-                className={`mt-3 w-full font-semibold py-2 rounded-lg transition duration-150 ${
+                className={`mt-4 w-full font-bold py-4 rounded-lg transition-all duration-200 text-base shadow-md ${
                     isFormatting
                         ? 'bg-gray-400 cursor-not-allowed'
-                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                        : 'bg-blue-600 hover:bg-blue-700 text-white hover:shadow-lg transform hover:-translate-y-0.5'
                 }`}
             >
-                {isFormatting ? 'Submitting for Formatting...' : 'Start AI Formatting & Summarization'}
+                {isFormatting ? '⏳ Processing...' : '✨ Format and Summarize My Document'}
             </button>
         </div>
     );
@@ -482,22 +513,86 @@ const Stage5Output = React.memo(({ fileKey, formattedText, summaryText, fileData
       }
     }, [fileData, isPDF]);
     
-    // Function to download content as a blob/PDF
-    const downloadBlob = (content, filename, mimeType) => {
-        const blob = new Blob([content], { type: mimeType });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+    // Function to download content as real PDF using jsPDF
+    const downloadAsPDF = (content, filename, title) => {
+        import('jspdf').then((jsPDFModule) => {
+            const { jsPDF } = jsPDFModule;
+            
+            // Create new PDF document
+            const doc = new jsPDF();
+            
+            // Set document properties
+            doc.setProperties({
+                title: title,
+                subject: 'Processed Document',
+                author: 'Handwritten Document Processor',
+                keywords: 'generated, document, text',
+                creator: 'Handwritten Document Processor'
+            });
+
+            // Add title
+            doc.setFontSize(16);
+            doc.setFont(undefined, 'bold');
+            doc.text(title, 20, 10);
+            
+            // Add generation date
+            doc.setFontSize(10);
+            doc.setFont(undefined, 'normal');
+            doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 20, 40);
+            
+            // Add content with proper formatting
+            doc.setFontSize(11);
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const margin = 10;
+            const maxWidth = pageWidth - (2 * margin);
+            
+            // Split text into lines that fit the page width
+            const lines = doc.splitTextToSize(content, maxWidth - 10);
+            
+            let yPosition = 60;
+            const lineHeight = 7;
+            const pageHeight = doc.internal.pageSize.getHeight();
+            
+            // Add lines to PDF with pagination
+            for (let i = 0; i < lines.length; i++) {
+                if (yPosition > pageHeight - 20) {
+                    doc.addPage();
+                    yPosition = 20;
+                }
+                doc.text(lines[i], margin, yPosition);
+                yPosition += lineHeight;
+            }
+            
+            // Add footer on last page
+            doc.setFontSize(8);
+            doc.text('Generated by Handwritten Document Processor', margin, pageHeight - 10);
+            
+            // Save the PDF
+            doc.save(`${filename}.pdf`);
+        }).catch(error => {
+            console.error('Error generating PDF:', error);
+            // Fallback to text download
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${filename}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
     };
 
     return (
-        <div className="mt-4 p-4 bg-green-50 rounded-xl border border-green-200">
-            <h4 className="text-xl font-semibold mb-3 text-green-700">✅ Stage 5: Final Output</h4>
+        <div className="mt-4 p-6 bg-emerald-50 rounded-xl border-2 border-emerald-200 shadow-sm">
+            <div className="flex items-center gap-3 mb-4">
+                <div className="text-3xl">✅</div>
+                <div>
+                    <h4 className="text-xl font-semibold text-emerald-800">Your Documents are Ready!</h4>
+                    <p className="text-sm text-emerald-600">Download your formatted document and summary below</p>
+                </div>
+            </div>
             
             {/* Original Document Reference */}
             <div className="mb-4">
@@ -523,35 +618,37 @@ const Stage5Output = React.memo(({ fileKey, formattedText, summaryText, fileData
                 )}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Formatted Document</label>
-                    <textarea 
-                        value={formattedEdit} 
-                        onChange={(e) => setFormattedEdit(e.target.value)} 
-                        rows="10" 
-                        className="w-full p-2 border border-gray-300 rounded-lg text-sm resize-none"
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white p-4 rounded-lg border-2 border-emerald-200 shadow-sm">
+                    <label className="block text-base font-semibold text-gray-800 mb-2">📄 Formatted Document</label>
+                    <p className="text-xs text-gray-600 mb-2">Your document, formatted and cleaned</p>
+                    <textarea
+                        value={formattedEdit}
+                        onChange={(e) => setFormattedEdit(e.target.value)}
+                        rows="10"
+                        className="w-full p-3 border-2 border-gray-300 rounded-lg text-sm resize-none mb-3 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                     />
                     <button
-                        onClick={() => downloadBlob(formattedEdit, `formatted_${fileKey}.txt`, 'text/plain')}
-                        className="mt-2 w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 rounded-lg transition duration-150"
+                        onClick={() => downloadAsPDF(formattedEdit, `formatted_${fileKey.replace('.pdf', '').replace('.jpg', '').replace('.png', '')}`, `Formatted Document - ${fileKey}`)}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
                     >
-                        📥 Download Formatted Text
+                        📥 Download Formatted Document
                     </button>
                 </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">AI Summary</label>
-                    <textarea 
-                        value={summaryEdit} 
-                        onChange={(e) => setSummaryEdit(e.target.value)} 
-                        rows="10" 
-                        className="w-full p-2 border border-gray-300 rounded-lg text-sm resize-none"
+                <div className="bg-white p-4 rounded-lg border-2 border-emerald-200 shadow-sm">
+                    <label className="block text-base font-semibold text-gray-800 mb-2">📝 Summary</label>
+                    <p className="text-xs text-gray-600 mb-2">Key points from your document</p>
+                    <textarea
+                        value={summaryEdit}
+                        onChange={(e) => setSummaryEdit(e.target.value)}
+                        rows="10"
+                        className="w-full p-3 border-2 border-gray-300 rounded-lg text-sm resize-none mb-3 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                     />
                     <button
-                        onClick={() => downloadBlob(summaryEdit, `summary_${fileKey}.txt`, 'text/plain')}
-                        className="mt-2 w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 rounded-lg transition duration-150"
+                        onClick={() => downloadAsPDF(summaryEdit, `summary_${fileKey.replace('.pdf', '').replace('.jpg', '').replace('.png', '')}`, `Document Summary - ${fileKey}`)}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
                     >
-                        📥 Download Summary Text
+                        📥 Download Summary
                     </button>
                 </div>
             </div>
@@ -564,15 +661,13 @@ const DocumentCard = React.memo(({ fileKey, documentData, fileData }) => {
     const { status, stage, extract_job_id, extracted_text, formatted_text, summary_text } = documentData;
     
     return (
-        <div className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-400 mb-6">
-            <div className="flex justify-between items-start mb-4">
-                <h3 className="text-xl font-bold text-gray-800 break-words pr-4">{fileKey}</h3>
+        <div className="bg-white p-6 rounded-xl shadow-lg border-l-4 border-blue-500 mb-6 hover:shadow-xl transition-shadow duration-200">
+            <div className="flex justify-between items-start mb-4 gap-4">
+                <div className="flex-1">
+                    <h3 className="text-xl font-bold text-gray-800 break-words mb-1">{fileKey}</h3>
+                    <p className="text-sm text-gray-500">Document processing workflow</p>
+                </div>
                 <StatusBadge stage={stage} status={status} />
-            </div>
-
-            <div className="space-y-2 text-sm text-gray-600 mb-4">
-                <p>Status: <span className="font-medium">{status.toUpperCase()}</span></p>
-                {extract_job_id && <p>Job ID: <span className="font-mono text-xs">{extract_job_id}</span></p>}
             </div>
 
             {/* Stage 2 Extraction with Image Preview */}
@@ -585,12 +680,13 @@ const DocumentCard = React.memo(({ fileKey, documentData, fileData }) => {
 
             {/* Stage 4 Loading Spinner */}
             {stage === 4 && (
-                <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
-                    <svg className="animate-spin h-8 w-8 text-indigo-500 mx-auto mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <div className="text-center py-12 bg-gradient-to-br from-blue-50 to-sky-50 rounded-xl border-2 border-blue-200 shadow-sm">
+                    <svg className="animate-spin h-16 w-16 text-blue-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    <p className="text-gray-600">AI Formatting and Summarization in progress...</p>
+                    <p className="text-xl font-bold text-blue-800 mb-2">Formatting Your Document</p>
+                    <p className="text-gray-600">Our AI is polishing your document and creating a summary. Almost done!</p>
                 </div>
             )}
             
@@ -614,10 +710,6 @@ const DocumentCard = React.memo(({ fileKey, documentData, fileData }) => {
                 />
             )}
 
-            {/* Debug Info */}
-            <div className="mt-4 p-2 bg-gray-100 rounded text-xs text-gray-600">
-                <p>Stage: {stage} | Status: {status}</p>
-            </div>
         </div>
     );
 });
@@ -730,63 +822,94 @@ const App = () => {
     ));
 
     return (
-        <div className="min-h-screen bg-gray-50 p-8 font-sans">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-sky-50 p-4 sm:p-8 font-sans">
             <div className="max-w-6xl mx-auto">
-                <h1 className="text-4xl font-extrabold text-indigo-800 text-center mb-8">
-                    Handwritten Document Processor
-                </h1>
+                <div className="text-center mb-8">
+                    <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-800 mb-2">
+                        Document Processor
+                    </h1>
+                    <p className="text-lg text-gray-600">Transform handwritten notes and PDFs into formatted digital text</p>
+                </div>
 
                 {/* Upload Section */}
-                <div className="bg-white p-6 rounded-xl shadow-md mb-8 border border-indigo-100">
-                    <h2 className="text-2xl font-semibold mb-4 text-indigo-600">Stage 1: Upload Documents</h2>
-                    
-                    <input 
-                        type="file" 
-                        multiple 
-                        onChange={(e) => setFiles(Array.from(e.target.files))} 
-                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
-                    />
-                    
-                    <div className="mt-3 text-sm text-gray-600">
-                        {files.length > 0 ? `Selected ${files.length} files: ${files.map(f => f.name).join(', ')}` : 'Select PNG, JPG, or PDF files.'}
+                <div className="bg-white p-6 sm:p-8 rounded-xl shadow-lg mb-8 border-2 border-blue-200">
+                    <div className="flex items-center gap-3 mb-4">
+                        <span className="text-3xl">📤</span>
+                        <div>
+                            <h2 className="text-2xl font-bold text-gray-800">Upload Your Documents</h2>
+                            <p className="text-sm text-gray-600">Choose one or more image or PDF files to get started</p>
+                        </div>
                     </div>
                     
+                    <div className="bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg p-6 mb-4 text-center hover:border-blue-400 transition-colors">
+                        <input
+                            type="file"
+                            multiple
+                            accept=".png,.jpg,.jpeg,.pdf"
+                            onChange={(e) => setFiles(Array.from(e.target.files))}
+                            className="block w-full text-base text-gray-700 file:mr-4 file:py-3 file:px-6 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 file:cursor-pointer cursor-pointer"
+                        />
+                        <p className="mt-3 text-sm text-gray-600">Supports: PNG, JPG, and PDF files</p>
+                    </div>
+
+                    {files.length > 0 && (
+                        <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                            <p className="font-semibold text-gray-800 mb-2">Selected files ({files.length}):</p>
+                            <ul className="text-sm text-gray-700 space-y-1">
+                                {files.map((f, idx) => (
+                                    <li key={idx} className="flex items-center gap-2">
+                                        <span className="text-blue-500">✓</span>
+                                        <span>{f.name}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
                     <button
                         onClick={handleUpload}
                         disabled={files.length === 0 || isUploading}
-                        className={`mt-4 w-full text-white font-semibold py-2 rounded-lg transition duration-150 ${
-                            files.length === 0 || isUploading 
-                                ? 'bg-gray-400 cursor-not-allowed' 
-                                : 'bg-indigo-600 hover:bg-indigo-700'
+                        className={`w-full text-white font-bold py-4 rounded-lg transition-all duration-200 text-lg shadow-md ${
+                            files.length === 0 || isUploading
+                                ? 'bg-gray-400 cursor-not-allowed'
+                                : 'bg-blue-600 hover:bg-blue-700 hover:shadow-lg transform hover:-translate-y-0.5'
                         }`}
                     >
-                        {isUploading ? 'Uploading & Queuing Jobs...' : `Process ${files.length} Document(s)`}
+                        {isUploading ? '⏳ Processing Your Files...' : files.length > 0 ? `✨ Process ${files.length} Document${files.length > 1 ? 's' : ''}` : '📤 Select Files to Begin'}
                     </button>
                 </div>
                 
                 {/* Document Dashboard */}
-                <div className="flex justify-between items-center mb-6 mt-10">
-                    <h2 className="text-3xl font-extrabold text-gray-700 border-b pb-2">
-                        Document Processing Dashboard
-                    </h2>
-                    <div className="text-sm text-gray-500">
-                        {Object.keys(documents).length} document(s) in queue
-                    </div>
-                </div>
-                
-                {DocumentCards.length > 0 ? (
-                    <div className="space-y-4">
-                        {DocumentCards}
-                    </div>
-                ) : (
-                    <div className="text-center py-12 text-gray-500 bg-white rounded-xl shadow-inner">
-                        Upload documents to begin processing.
+                {Object.keys(documents).length > 0 && (
+                    <div className="bg-white p-4 rounded-xl shadow-md mb-6 border-2 border-gray-200">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <span className="text-2xl">📊</span>
+                                <h2 className="text-2xl font-bold text-gray-800">
+                                    Your Documents
+                                </h2>
+                            </div>
+                            <div className="bg-blue-100 text-blue-700 px-4 py-2 rounded-full font-semibold text-sm">
+                                {Object.keys(documents).length} document{Object.keys(documents).length !== 1 ? 's' : ''}
+                            </div>
+                        </div>
                     </div>
                 )}
                 
-                <footer className="text-center mt-10 pt-4 text-sm text-gray-400 border-t">
-                    FastAPI & React with Real-Time WebSockets
-                    <p className="mt-1">User ID: {USER_ID} | API Status: {API_URL}</p>
+                {DocumentCards.length > 0 ? (
+                    <div className="space-y-6">
+                        {DocumentCards}
+                    </div>
+                ) : (
+                    <div className="text-center py-16 bg-white rounded-xl shadow-md border-2 border-dashed border-gray-300">
+                        <div className="text-6xl mb-4">📄</div>
+                        <p className="text-xl font-semibold text-gray-700 mb-2">No Documents Yet</p>
+                        <p className="text-gray-500">Upload your first document above to get started</p>
+                    </div>
+                )}
+                
+                <footer className="text-center mt-12 pt-6 text-xs text-gray-400">
+                    <p>Powered by AI • Real-time Processing</p>
                 </footer>
             </div>
         </div>

@@ -1,0 +1,32 @@
+# --- ENVIRONMENT AND CREDENTIALS ---
+# Critical: Do not copy the .env file with production secrets into the image.
+.env
+.env.production
+.env.local
+
+# --- PYTHON ARTIFACTS ---
+# Python virtual environment folder
+venv/
+.venv/
+
+# Bytecode files
+__pycache__/
+*.pyc
+
+# Local Python test/report directories
+.pytest_cache/
+htmlcov/
+.mypy_cache/
+
+# --- LOCAL DEVELOPMENT / OS FILES ---
+# Ignore VS Code settings/history/database files
+.vscode/
+.history/
+.DS_Store
+
+# --- PROJECT DEPENDENCY ARTIFACTS ---
+# Ignore the entire frontend folder, as it has its own build process.
+frontend/
+
+# Ignore the results of your PDF/AI processing
+*.pdf

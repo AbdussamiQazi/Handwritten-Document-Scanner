@@ -14,6 +14,7 @@ from rq import Queue as RQ_Queue
 from dotenv import load_dotenv
 import asyncio
 import nest_asyncio
+import gunicorn
 
 nest_asyncio.apply()
 

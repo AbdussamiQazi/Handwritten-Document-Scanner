@@ -14,3 +14,5 @@ fpdf2              # For creating the final PDF reports (formatted and summary)
 numpy              # Often a dependency for image/data processing libraries
 httpx              # Used internally by the google-genai library
 nest-asyncio
+python-multipart
+gunicorn
