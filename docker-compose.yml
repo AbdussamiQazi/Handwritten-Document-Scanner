@@ -1,98 +1,64 @@
 services:
-  # NOTE: The local 'redis' service definition is removed.
-  # All services connect to the external REDIS_URL provided in your .env file.
-
-
-  # 1. API Service (FastAPI) - Handles HTTP/WebSockets
+  # 1. API Service
   api:
     build: .
     ports:
       - "8000:8000"
-    # ✅ Pulls REDIS_URL and all 7 GEMINI_API_KEY_X from your .env file
     env_file:
       - .env 
-    # Development command: Gunicorn manages a Uvicorn worker and allows code reloading
-    command: gunicorn api:app --bind 0.0.0.0:8000 --workers 1 --worker-class uvicorn.workers.UvicornWorker --reload
-    
-    volumes:
-      - .:/app 
+    # Workers reduced to 2 for the API itself to save RAM for your 7 extraction workers
+    command: gunicorn api:app --bind 0.0.0.0:8000 --workers 2 --worker-class uvicorn.workers.UvicornWorker
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    # FOR PRODUCTION DEPLOYMENT: Remove volumes, remove --reload, and change --workers 4
 
-  # --- 2. Dedicated Worker Services (6 Total Replicas) ---
-  # All workers correctly connect externally and inherit credentials.
+  # --- 7 DEDICATED WORKERS ---
+  # These will use the SWAP memory we just created if they get too heavy.
 
   extract-worker-1:
     build: .
-    env_file:
-      - .env
-    volumes:
-      - .:/app
+    env_file: .env
     command: python extractWorker.py
     restart: unless-stopped
 
   extract-worker-2:
     build: .
-    env_file:
-      - .env
-    volumes:
-      - .:/app
+    env_file: .env
     command: python extractWorker.py
     restart: unless-stopped
 
   extract-worker-3:
     build: .
-    env_file:
-      - .env
-    volumes:
-      - .:/app
+    env_file: .env
     command: python extractWorker.py
     restart: unless-stopped
 
   format-worker-1:
     build: .
-    env_file:
-      - .env
-    volumes:
-      - .:/app
+    env_file: .env
     command: python formatWorker.py
     restart: unless-stopped
 
   format-worker-2:
     build: .
-    env_file:
-      - .env
-    volumes:
-      - .:/app
+    env_file: .env
     command: python formatWorker.py
     restart: unless-stopped
 
-  flex-worker:
+  flex-worker-1:
     build: .
-    env_file:
-      - .env
-    volumes:
-      - .:/app
+    env_file: .env
     command: python flexWorker.py
     restart: unless-stopped
+    
 
   # 3. Frontend Service
   frontend:
     build:
       context: ./frontend
+      args:
+        # REPLACE WITH YOUR STATIC IP
+        - REACT_APP_API_URL=http://52.66.80.18:8000
     ports:
-      - "3000:3000"
+      - "80:80"
     depends_on:
       - api 
-    environment:
-      - VITE_API_URL=http://localhost:8000
-    volumes:
-      - ./frontend:/app 
-      - /app/node_modules
     restart: unless-stopped
-    command: npm start

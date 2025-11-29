@@ -40,7 +40,13 @@ class NoForkWorker(SimpleWorker):
         try:
             # Use correct parameter order
             result = job.func(*job.args, **job.kwargs)
-            
+                    # ---- FIX: Inject job_id into metadata ----
+            if "metadata" in job.kwargs:
+                meta = job.kwargs["metadata"]
+                meta["job_id"] = job.id
+                job.kwargs["metadata"] = meta
+        # -------------------------------------------
+
             job._result = result
             job.set_status('finished')
             print(f"✅ Job {job.id} completed successfully")

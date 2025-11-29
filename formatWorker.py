@@ -32,6 +32,14 @@ class NoForkWorker(SimpleWorker):
         """Override to run job in the same process"""
         print(f"🔧 Executing job {job.id} in main process (no fork)...")
         
+                # ---- FIX: Inject job_id into metadata ----
+        if "metadata" in job.kwargs:
+            meta = job.kwargs["metadata"]
+            meta["job_id"] = job.id
+            job.kwargs["metadata"] = meta
+        # -------------------------------------------
+
+
         now = datetime.now(UTC) 
         job.started_at = now
         job.set_status('started')

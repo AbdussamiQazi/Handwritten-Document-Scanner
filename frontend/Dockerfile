@@ -1,24 +1,33 @@
-# Use a Node.js image suitable for development
-FROM node:20-slim
+# Stage 1: Build the React Application
+FROM node:20-slim as builder
 
-# Set working directory inside the container
 WORKDIR /app
 
-# Copy package.json and package-lock.json
-COPY package.json .
-COPY package-lock.json .
+COPY package*.json ./
+# If you have tailwind, keep these, otherwise ignore
 COPY tailwind.config.js .
 COPY postcss.config.js .
 
-# Install dependencies
 RUN npm install
 
-# Copy all the rest of your frontend code
 COPY . .
 
-# Expose the default port for the Create React App development server
-EXPOSE 3000
+# --- CHANGED FOR NORMAL REACT (CRA) ---
+# 1. Use REACT_APP_ prefix
+# 2. Accept it as a build argument
+ARG REACT_APP_API_URL
+ENV REACT_APP_API_URL=$REACT_APP_API_URL
 
-# The default command when the container starts is to run the development server
-# NOTE: This command is redundant if specified in docker-compose.yml, but serves as a good default.
-CMD ["npm", "start"]
+# Build the app
+RUN npm run build
+
+# Stage 2: Serve with Nginx
+FROM nginx:alpine
+
+# --- FIXED: COPY FROM 'build' INSTEAD OF 'dist' ---
+COPY --from=builder /app/build /usr/share/nginx/html
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

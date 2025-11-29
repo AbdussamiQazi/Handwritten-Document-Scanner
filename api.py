@@ -54,7 +54,7 @@ app = FastAPI(title="Bolt AI Document API")
 # --- FIXED CORS Middleware ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # Specific React dev server
+    allow_origins_regex=".*",  # Specific React dev server
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods
     allow_headers=["*"],  # Allow all headers

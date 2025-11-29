@@ -1,7 +1,22 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-// --- Configuration ---
-const API_URL = 'http://localhost:8000'; 
+// 1. Get the IP from the build environment, or fallback to window location
+const getApiUrl = () => {
+  if (process.env.REACT_APP_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  // Fallback: If running on 54.123.45.67, use that IP
+  return `http://${window.location.hostname}:8000`;
+};
+
+const getWsUrl = () => {
+  const baseUrl = getApiUrl().replace('http', 'ws'); // Change http to ws
+  return `${baseUrl}/ws/status/${USER_ID}`;
+};
+
+const API_URL = getApiUrl();
+const WS_BASE = getApiUrl().replace('http', 'ws'); // Define WS_BASE properly
+
 // Generate a unique ID for the session/user (client-side only for API tracking)
 const USER_ID = Math.random().toString(36).substring(2, 10); 
 
@@ -721,8 +736,8 @@ const App = () => {
     const [fileDataMap, setFileDataMap] = useState({});
     const [isUploading, setIsUploading] = useState(false);
     
-    // Construct the dynamic WebSocket URL
-    const websocketUrl = `ws://localhost:8000/ws/status/${USER_ID}`;
+    // Use the getWsUrl function to construct the WebSocket URL
+    const websocketUrl = getWsUrl();
     
     // WebSocket message handler
     const handleWsMessage = useCallback((update) => {
