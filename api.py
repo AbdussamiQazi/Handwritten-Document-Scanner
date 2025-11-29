@@ -49,12 +49,12 @@ except ImportError as e:
             'total': extractionQueue.count
         }
 
-app = FastAPI(title="Bolt AI Document API")
+app = FastAPI(title="AI Document API")
 
 # --- FIXED CORS Middleware ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins_regex=".*",  # Specific React dev server
+    allow_origins=["*"],  # Specific React dev server
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods
     allow_headers=["*"],  # Allow all headers

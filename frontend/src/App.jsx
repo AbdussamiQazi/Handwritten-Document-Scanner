@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 // 1. Get the IP from the build environment, or fallback to window location
 const getApiUrl = () => {
   if (process.env.REACT_APP_API_URL) {
-    return import.meta.env.VITE_API_URL;
+    return process.env.REACT_APP_API_URL;
   }
   // Fallback: If running on 54.123.45.67, use that IP
   return `http://${window.location.hostname}:8000`;
