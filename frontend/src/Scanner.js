@@ -271,66 +271,99 @@ const Stage2Extraction = React.memo(({ fileKey, fileData }) => {
         </div>
       </div>
       
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-        {/* Preview Section */}
-        <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-4 px-1">
-            {isPDF ? 'PDF Document' : 'Original Image'}
+      {/* Updated layout: Image on left, status on right */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+        {/* Image Preview - Now larger and equal height */}
+        <div className="flex flex-col h-full">
+          <label className="block text-sm font-semibold text-gray-700 mb-3 px-1">
+            {isPDF ? 'PDF Document Preview' : 'Original Document'}
           </label>
-          {isPDF ? (
-            <div className="relative border-2 border-dashed border-amber-300/50 rounded-2xl p-10 text-center bg-gradient-to-br from-white to-amber-50/50 backdrop-blur-sm">
-              <div className="text-7xl text-red-400/80 mb-4 drop-shadow-sm">📄</div>
-              <p className="font-bold text-gray-800 text-lg">PDF Document</p>
-              <p className="text-sm text-gray-600 mt-2">Text extraction in progress...</p>
-              <div className="mt-4 text-xs text-gray-400 font-mono">AQ Process</div>
-            </div>
-          ) : imageUrl ? (
-            <div className="border-2 border-dashed border-amber-300/50 rounded-2xl p-4 bg-gradient-to-br from-white to-amber-50/50 backdrop-blur-sm">
-              <img 
-                src={imageUrl} 
-                alt="Document being processed" 
-                className="w-full h-64 object-contain rounded-lg shadow-inner"
-              />
-              <p className="text-xs text-gray-500 text-center mt-3 font-mono">
-                {fileData?.name || fileKey}
-              </p>
-            </div>
-          ) : (
-            <div className="border-2 border-dashed border-amber-300/50 rounded-2xl p-10 text-center bg-gradient-to-br from-white to-amber-50/50">
-              <LoadingSpinner size={8} color="text-amber-500" />
-              <p className="text-gray-500 mt-3">Loading preview...</p>
-            </div>
+          <div className="flex-1 border-2 border-amber-300/40 rounded-2xl overflow-hidden bg-gradient-to-br from-white to-amber-50/50 backdrop-blur-sm shadow-inner">
+            {isPDF ? (
+              <div className="h-full flex flex-col items-center justify-center p-8 text-center">
+                <div className="text-7xl text-red-400/80 mb-6 drop-shadow-sm">📄</div>
+                <p className="font-bold text-gray-800 text-xl mb-2">PDF Document</p>
+                <p className="text-sm text-gray-600 mb-4">Text extraction in progress...</p>
+                <div className="text-xs text-gray-400 font-mono bg-amber-100/50 px-4 py-2 rounded-lg">AQ Processing</div>
+              </div>
+            ) : imageUrl ? (
+              <div className="h-full flex items-center justify-center p-4">
+                <img 
+                  src={imageUrl} 
+                  alt="Document being processed" 
+                  className="max-h-[400px] w-auto object-contain rounded-lg"
+                  style={{ maxWidth: '100%' }}
+                />
+              </div>
+            ) : (
+              <div className="h-full flex items-center justify-center p-10">
+                <LoadingSpinner size={12} color="text-amber-500" />
+              </div>
+            )}
+          </div>
+          {!isPDF && imageUrl && (
+            <p className="text-xs text-gray-500 text-center mt-2 truncate">
+              {fileData?.name || fileKey}
+            </p>
           )}
         </div>
         
-        {/* Processing Status */}
-        <div className="flex flex-col justify-center">
-          <div className="text-center">
-            <div className="inline-block mb-6">
-              <LoadingSpinner size={20} color="text-amber-500" />
-            </div>
-            <p className="text-2xl font-bold bg-gradient-to-r from-amber-700 to-orange-700 bg-clip-text text-transparent mb-3">
-              {isPDF ? 'Reading Your PDF' : 'Reading Your Document'}
-            </p>
-            <p className="text-gray-700 mb-6 text-base leading-relaxed">
-              {isPDF
-                ? "Please wait while we extract text from all pages. This usually takes a few moments."
-                : "Our AI is reading the text from your document. This typically completes in seconds."
-              }
-            </p>
-            <Card gradient="from-white to-amber-50/50" className="p-6">
-              <p className="text-sm text-gray-800 font-semibold mb-2">
-                <span className="text-amber-600">Processing:</span> {fileKey}
+        {/* Processing Status - Now takes full height */}
+        <div className="flex flex-col h-full">
+          <label className="block text-sm font-semibold text-gray-700 mb-3 px-1">
+            Processing Status
+          </label>
+          <div className="flex-1 flex flex-col justify-center bg-gradient-to-br from-white to-amber-50/50 backdrop-blur-sm border-2 border-amber-300/40 rounded-2xl p-8">
+            <div className="text-center">
+              <div className="inline-block mb-6">
+                <LoadingSpinner size={20} color="text-amber-500" />
+              </div>
+              <p className="text-2xl font-bold bg-gradient-to-r from-amber-700 to-orange-700 bg-clip-text text-transparent mb-4">
+                {isPDF ? 'Reading Your PDF' : 'Reading Your Document'}
               </p>
-              <p className="text-xs text-gray-600 leading-relaxed">
-                {isPDF 
-                  ? "Compare the extracted text with your original PDF to verify accuracy"
-                  : "Compare the extracted text with the original image to verify accuracy"
+              <p className="text-gray-700 mb-6 text-base leading-relaxed">
+                {isPDF
+                  ? "Please wait while we extract text from all pages. This usually takes a few moments."
+                  : "Our AI is reading the text from your document. This typically completes in seconds."
                 }
               </p>
-              {/* AQ Easter Egg in corner */}
-              <div className="absolute bottom-2 right-2 text-[6px] font-mono text-amber-300/30">AQ</div>
-            </Card>
+              
+              {/* Document Info Card */}
+              <div className="bg-white/70 border border-amber-200/50 rounded-xl p-5 mb-6 backdrop-blur-sm">
+                <p className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                  <span className="text-amber-600">📄 Processing:</span> 
+                  <span className="truncate">{fileKey}</span>
+                </p>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  {isPDF 
+                    ? "Compare the extracted text with your original PDF to verify accuracy"
+                    : "Compare the extracted text with the original image to verify accuracy"
+                  }
+                </p>
+              </div>
+              
+              {/* Progress indicator */}
+              <div className="relative pt-1">
+                <div className="flex mb-2 items-center justify-between">
+                  <div>
+                    <span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-amber-600 bg-amber-200">
+                      Extracting
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs font-semibold inline-block text-amber-600">
+                      50%
+                    </span>
+                  </div>
+                </div>
+                <div className="overflow-hidden h-2 mb-4 text-xs flex rounded-full bg-amber-200">
+                  <div 
+                    style={{ width: "50%" }}
+                    className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-gradient-to-r from-amber-500 to-orange-500 animate-pulse"
+                  ></div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -338,7 +371,7 @@ const Stage2Extraction = React.memo(({ fileKey, fileData }) => {
   );
 });
 
-// Stage 3: Editor Component
+// Stage 3: Editor Component - Image on left, text on right (Improved visibility)
 const Stage3Editor = React.memo(({ fileKey, initialText, userId, fileData }) => {
     const [editedText, setEditedText] = useState(initialText);
     const [isFormatting, setIsFormatting] = useState(false);
@@ -408,97 +441,140 @@ const Stage3Editor = React.memo(({ fileKey, initialText, userId, fileData }) => 
 
     return (
         <Card gradient="from-sky-50/80 to-blue-50/80" className="mt-6 p-8">
-            <div className="flex items-center gap-4 mb-8">
+            <div className="flex items-center gap-4 mb-6">
                 <div className="text-3xl bg-gradient-to-br from-sky-500 to-blue-500 p-3 rounded-xl text-white shadow-lg">✏️</div>
                 <div>
                     <h4 className="text-2xl font-bold bg-gradient-to-r from-sky-800 to-blue-800 bg-clip-text text-transparent">
                         Review and Edit Your Text
                     </h4>
-                    <p className="text-sm text-sky-600/80">Check the extracted text and make any corrections needed</p>
+                    <p className="text-sm text-sky-600/80">Compare the original image with extracted text and make corrections</p>
                 </div>
             </div>
             
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 mb-8">
-                {/* Preview Section */}
-                <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-4 px-1">
-                        {isPDF ? 'PDF Document Reference' : 'Original Document'}
+            {/* Main Comparison Area - Image on LEFT, Text on RIGHT */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                {/* LEFT COLUMN: Original Image */}
+                <div className="flex flex-col">
+                    <label className="block text-lg font-bold text-gray-800 mb-3 px-1">
+                        📷 Original Document
                     </label>
-                    {isPDF ? (
-                        <div className="border-2 border-sky-300/40 rounded-2xl p-8 text-center bg-gradient-to-br from-white to-sky-50/50 backdrop-blur-sm">
-                            <div className="text-6xl text-red-400/80 mb-4">📄</div>
-                            <p className="font-bold text-gray-800 text-lg">PDF Document</p>
-                            <p className="text-sm text-gray-600">Compare extracted text with original PDF</p>
-                            <div className="mt-4 text-xs text-gray-400 font-mono">AQ Verified</div>
-                        </div>
-                    ) : imageUrl ? (
-                        <div className="border-2 border-sky-300/40 rounded-2xl p-4 bg-gradient-to-br from-white to-sky-50/50 backdrop-blur-sm">
-                            <img 
-                                src={imageUrl} 
-                                alt="Document for reference" 
-                                className="w-full h-64 object-contain rounded-lg shadow-inner"
-                            />
-                            <p className="text-xs text-gray-500 text-center mt-3">
-                                Compare with extracted text below
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="border-2 border-dashed border-sky-300/40 rounded-2xl p-10 text-center bg-gradient-to-br from-white to-sky-50/50">
-                            <p className="text-gray-500">Document preview not available</p>
-                        </div>
+                    <div className="border-2 border-sky-300/40 rounded-2xl overflow-hidden bg-gradient-to-br from-white to-sky-50/50 backdrop-blur-sm shadow-inner min-h-[400px] max-h-[600px]">
+                        {isPDF ? (
+                            <div className="h-full flex flex-col items-center justify-center p-8 text-center">
+                                <div className="text-7xl text-red-400/80 mb-6">📄</div>
+                                <p className="font-bold text-gray-800 text-xl mb-2">PDF Document</p>
+                                <p className="text-sm text-gray-600 mb-4">Compare extracted text with original PDF</p>
+                                <div className="text-xs text-gray-400 font-mono bg-sky-100/50 px-4 py-2 rounded-lg">AQ Verified</div>
+                            </div>
+                        ) : imageUrl ? (
+                            <div className="h-full flex items-center justify-center p-4">
+                                <img 
+                                    src={imageUrl} 
+                                    alt="Original document for comparison" 
+                                    className="max-h-[550px] max-w-full object-contain"
+                                />
+                            </div>
+                        ) : (
+                            <div className="h-full flex items-center justify-center p-10">
+                                <p className="text-gray-500">Document preview not available</p>
+                            </div>
+                        )}
+                    </div>
+                    {!isPDF && imageUrl && (
+                        <p className="text-xs text-gray-500 text-center mt-2 italic">
+                            Compare with extracted text on the right →
+                        </p>
                     )}
                 </div>
                 
-                {/* Tips Section */}
-                <Card gradient="from-white to-sky-50/50" className="p-6">
-                    <div className="flex items-center gap-3 mb-5">
-                        <span className="text-2xl bg-gradient-to-br from-sky-400 to-blue-400 p-2 rounded-lg text-white shadow">💡</span>
-                        <h5 className="font-bold text-sky-800 text-lg">Helpful Tips</h5>
+                {/* RIGHT COLUMN: Extracted Text */}
+                <div className="flex flex-col">
+                    <div className="flex justify-between items-center mb-3">
+                        <label className="block text-lg font-bold text-gray-800 px-1">
+                            📝 Extracted Text
+                        </label>
+                        <div className="text-xs text-sky-600 font-medium bg-sky-100/50 px-3 py-1 rounded-full">
+                            {editedText.length} characters
+                        </div>
                     </div>
-                    <ul className="space-y-4">
-                        <li className="flex items-start gap-3">
-                            <span className="text-sky-500 font-bold mt-1 text-lg">•</span>
-                            <span className="text-gray-700">Fix any incorrect letters or words</span>
-                        </li>
-                        <li className="flex items-start gap-3">
-                            <span className="text-sky-500 font-bold mt-1 text-lg">•</span>
-                            <span className="text-gray-700">Adjust spacing and paragraph breaks</span>
-                        </li>
-                        <li className="flex items-start gap-3">
-                            <span className="text-sky-500 font-bold mt-1 text-lg">•</span>
-                            <span className="text-gray-700">Double-check numbers and symbols</span>
-                        </li>
-                        <li className="flex items-start gap-3">
-                            <span className="text-sky-500 font-bold mt-1 text-lg">•</span>
-                            <span className="text-gray-700">Look for any missing text</span>
-                        </li>
-                        {isPDF && (
-                            <li className="flex items-start gap-3">
-                                <span className="text-sky-500 font-bold mt-1 text-lg">•</span>
-                                <span className="text-gray-700">Review all pages carefully</span>
-                            </li>
-                        )}
-                    </ul>
-                    {/* AQ Easter Egg */}
-                    <div className="absolute bottom-3 right-3 text-[8px] font-mono text-sky-300/30">AQ</div>
-                </Card>
+                    <div className="border-2 border-sky-300/40 rounded-2xl overflow-hidden bg-white/90 backdrop-blur-sm shadow-inner min-h-[400px] max-h-[600px]">
+                        <textarea
+                            value={editedText}
+                            onChange={(e) => setEditedText(e.target.value)}
+                            className="w-full h-full p-5 text-base resize-none border-none focus:ring-0 bg-transparent font-mono leading-relaxed"
+                            placeholder="Review and correct the extracted text here..."
+                            style={{ 
+                                minHeight: '400px',
+                                lineHeight: '1.6'
+                            }}
+                        />
+                    </div>
+                    <p className="text-sm text-gray-600 mt-2 px-1">
+                        Edit text while looking at the original image on the left
+                    </p>
+                </div>
             </div>
 
-            <label className="block text-lg font-bold text-gray-800 mb-2">
-                {isPDF ? 'Text from Your PDF' : 'Text from Your Document'}
-            </label>
-            <p className="text-sm text-gray-600 mb-5">Make any corrections you need, then click the button below to continue</p>
-            <textarea
-                value={editedText}
-                onChange={(e) => setEditedText(e.target.value)}
-                rows="12"
-                className="w-full p-5 border-2 border-gray-300/50 rounded-2xl focus:ring-3 focus:ring-sky-500/30 focus:border-sky-400 text-base resize-none bg-white/80 backdrop-blur-sm shadow-inner"
-                placeholder="Review and correct the extracted text here..."
-            />
+            {/* Compact Tips Section - Smaller and less intrusive */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="bg-white/70 border border-sky-200/50 rounded-xl p-4 backdrop-blur-sm">
+                    <div className="flex items-center gap-2 mb-3">
+                        <span className="text-sky-500 text-lg">✓</span>
+                        <h6 className="font-semibold text-gray-800 text-sm">Check Accuracy</h6>
+                    </div>
+                    <p className="text-xs text-gray-600">Fix incorrect letters or words by comparing with the original</p>
+                </div>
+                
+                <div className="bg-white/70 border border-sky-200/50 rounded-xl p-4 backdrop-blur-sm">
+                    <div className="flex items-center gap-2 mb-3">
+                        <span className="text-sky-500 text-lg">↔️</span>
+                        <h6 className="font-semibold text-gray-800 text-sm">Adjust Formatting</h6>
+                    </div>
+                    <p className="text-xs text-gray-600">Fix spacing, paragraphs, and line breaks as needed</p>
+                </div>
+                
+                <div className="bg-white/70 border border-sky-200/50 rounded-xl p-4 backdrop-blur-sm">
+                    <div className="flex items-center gap-2 mb-3">
+                        <span className="text-sky-500 text-lg">🔢</span>
+                        <h6 className="font-semibold text-gray-800 text-sm">Verify Details</h6>
+                    </div>
+                    <p className="text-xs text-gray-600">Double-check numbers, dates, and special symbols</p>
+                </div>
+            </div>
+
+            {/* Document Info - Compact */}
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6 p-4 bg-white/50 border border-sky-200/30 rounded-xl">
+                <div className="flex items-center gap-3">
+                    <span className="text-sky-500 bg-sky-100/70 p-2 rounded-lg">📄</span>
+                    <div>
+                        <p className="font-medium text-gray-800 text-sm">Processing: {fileKey}</p>
+                        <p className="text-xs text-gray-600">{isPDF ? 'PDF Document' : 'Image File'}</p>
+                    </div>
+                </div>
+                
+                <div className="flex items-center gap-4">
+                    <div className="text-center">
+                        <p className="text-xs text-gray-500">Characters</p>
+                        <p className="font-bold text-sky-600">{editedText.length}</p>
+                    </div>
+                    
+                    <div className="text-center">
+                        <p className="text-xs text-gray-500">Lines</p>
+                        <p className="font-bold text-sky-600">{editedText.split('\n').length}</p>
+                    </div>
+                    
+                    <div className="text-center">
+                        <p className="text-xs text-gray-500">Status</p>
+                        <p className="font-bold text-green-600 text-xs bg-green-100/50 px-3 py-1 rounded-full">Ready</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Format Button */}
             <button
                 onClick={handleFormat}
                 disabled={isFormatting}
-                className={`relative mt-8 w-full font-bold py-5 rounded-2xl transition-all duration-300 text-lg shadow-xl overflow-hidden group ${
+                className={`relative w-full font-bold py-4 rounded-2xl transition-all duration-300 text-lg shadow-xl overflow-hidden group ${
                     isFormatting
                         ? 'bg-gradient-to-r from-gray-400 to-gray-500 cursor-not-allowed'
                         : 'bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-700 hover:to-blue-700 text-white hover:shadow-2xl'
@@ -756,8 +832,8 @@ const DocumentCard = React.memo(({ fileKey, documentData, fileData }) => {
     );
 });
 
-// ==================== MAIN APP COMPONENT ====================
-const App = () => {
+// ==================== DOCUMENT SCANNER MAIN COMPONENT ====================
+const Scanner = ({ onLogout }) => {
     const { documents } = useDocumentStore();
     const [files, setFiles] = useState([]);
     const [fileDataMap, setFileDataMap] = useState({});
@@ -808,7 +884,9 @@ const App = () => {
             
             console.log('✅ Upload response:', results);
             
-            const newDocuments = { ...documents };
+            const currentStoreState = documentStore.getState().documents;
+        
+            const newDocuments = { ...currentStoreState };
             results.job_submissions.forEach(job => {
                 newDocuments[job.file_name] = {
                     file_name: job.file_name,
@@ -864,16 +942,24 @@ const App = () => {
             </div>
 
             <div className="relative max-w-7xl mx-auto px-4 sm:px-8 py-8">
-                {/* Header */}
+                {/* Header with Logout Button */}
                 <header className="text-center mb-16 pt-8">
-                    <div className="inline-block mb-6">
-                        <div className="text-5xl bg-gradient-to-br from-white to-blue-100 p-4 rounded-2xl shadow-2xl mb-4">
+                    <div className="flex justify-between items-center mb-6">
+                        <div className="text-5xl bg-gradient-to-br from-white to-blue-100 p-4 rounded-2xl shadow-2xl">
                             📄✨
                         </div>
+                        {onLogout && (
+                            <button
+                                onClick={onLogout}
+                                className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-2 px-6 rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl"
+                            >
+                                Logout
+                            </button>
+                        )}
                     </div>
                     <h1 className="text-5xl sm:text-7xl font-black mb-6">
                         <span className="bg-gradient-to-r from-white via-blue-100 to-white bg-clip-text text-transparent">
-                            AQ Document
+                            Handwritten Document
                         </span>
                         <br />
                         <span className="bg-gradient-to-r from-blue-200 via-white to-blue-200 bg-clip-text text-transparent">
@@ -906,7 +992,7 @@ const App = () => {
                                 type="file"
                                 multiple
                                 accept=".png,.jpg,.jpeg,.pdf"
-                                onChange={(e) => setFiles(Array.from(e.target.files))}
+                                onChange={(e) => setFiles(prev=>[...prev, ...Array.from(e.target.files)])}
                                 className="block w-full text-lg text-gray-700 file:mr-6 file:py-5 file:px-10 file:rounded-full file:border-0 file:text-lg file:font-bold file:bg-gradient-to-r file:from-blue-600 file:to-sky-600 file:text-white hover:file:from-blue-700 hover:file:to-sky-700 file:cursor-pointer cursor-pointer backdrop-blur-sm"
                             />
                             <p className="mt-6 text-sm text-gray-600">Supports: PNG, JPG, and PDF files</p>
@@ -990,7 +1076,7 @@ const App = () => {
                             Upload your first document above to begin the AI-powered transformation process
                         </p>
                         {/* AQ Easter Egg */}
-                        <div className="mt-8 text-xs font-mono text-gray-400">AQ Ready • AI Powered • Real-time</div>
+                        <div className="mt-8 text-xs font-mono text-gray-400"> Ready • AI Powered • Real-time</div>
                     </Card>
                 )}
                 
@@ -1008,4 +1094,4 @@ const App = () => {
     );
 };
 
-export default App;
+export default Scanner;
