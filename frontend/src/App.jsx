@@ -1,26 +1,23 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-// 1. Get the IP from the build environment, or fallback to window location
+// ==================== CONSTANTS & CONFIGURATION ====================
 const getApiUrl = () => {
   if (process.env.REACT_APP_API_URL) {
     return process.env.REACT_APP_API_URL;
   }
-  // Fallback: If running on 54.123.45.67, use that IP
   return `http://${window.location.hostname}:8000`;
 };
 
 const getWsUrl = () => {
-  const baseUrl = getApiUrl().replace('http', 'ws'); // Change http to ws
+  const baseUrl = getApiUrl().replace('http', 'ws');
   return `${baseUrl}/ws/status/${USER_ID}`;
 };
 
 const API_URL = getApiUrl();
-const WS_BASE = getApiUrl().replace('http', 'ws'); // Define WS_BASE properly
+const WS_BASE = getApiUrl().replace('http', 'ws');
+const USER_ID = Math.random().toString(36).substring(2, 10);
 
-// Generate a unique ID for the session/user (client-side only for API tracking)
-const USER_ID = Math.random().toString(36).substring(2, 10); 
-
-// --- Global State Management (Zustand replacement for simplicity) ---
+// ==================== STORE MANAGEMENT ====================
 const createStore = (initialState) => {
   let state = initialState;
   const listeners = new Set();
@@ -48,7 +45,7 @@ const useDocumentStore = () => {
   return state;
 };
 
-// --- Update Handler (FIXED FOR MULTIPLE DOCUMENTS) ---
+// ==================== DOCUMENT STATE UPDATER ====================
 const updateDocumentState = (update) => {
   console.log('🔄 Updating document state:', update);
   const { documents } = documentStore.getState();
@@ -59,7 +56,6 @@ const updateDocumentState = (update) => {
     return;
   }
   
-  // Initialize document if it doesn't exist 
   if (!documents[fileKey]) {
     console.log(`📄 Creating new document entry for: ${fileKey}`);
     documents[fileKey] = {
@@ -71,14 +67,12 @@ const updateDocumentState = (update) => {
       edited_text: '',
       formatted_text: '',
       summary_text: '',
-      file_data: null, // Store file data for image preview
+      file_data: null,
     };
   }
 
   const currentDoc = documents[fileKey];
-  console.log(`📊 Updating ${fileKey}: current stage=${currentDoc.stage}, new status=${update.status}, job_type=${update.job_type}`);
-
-  // Update logic based on job status
+  
   if (update.job_type === 'extract' && update.status === 'finished') {
     documentStore.setState({ 
       documents: {
@@ -93,11 +87,9 @@ const updateDocumentState = (update) => {
         }
       }
     });
-    console.log(`✅ ${fileKey} moved to stage 3 (editing)`);
   } else if (update.job_type === 'format' && update.status === 'finished') {
     let result = {};
     try {
-      // Result is a JSON string from worker.py containing formatted_text and summary_text
       result = JSON.parse(update.result);
     } catch (e) {
       console.error("Failed to parse format result JSON:", e);
@@ -117,7 +109,6 @@ const updateDocumentState = (update) => {
         }
       }
     });
-    console.log(`✅ ${fileKey} moved to stage 5 (completed)`);
   } else if (update.status === 'failed') {
     documentStore.setState({ 
       documents: {
@@ -130,9 +121,7 @@ const updateDocumentState = (update) => {
         }
       }
     });
-    console.log(`❌ ${fileKey} failed at stage ${currentDoc.stage}`);
   } else {
-    // For 'queued', 'started' updates
     documentStore.setState({ 
       documents: {
         ...documents,
@@ -143,16 +132,14 @@ const updateDocumentState = (update) => {
         }
       }
     });
-    console.log(`🔄 ${fileKey} status updated to: ${update.status}`);
   }
 };
 
-// --- WebSocket Hook (FIXED VERSION) ---
+// ==================== WEB SOCKET HOOK ====================
 const useWebSocket = (url, onMessage) => {
   const connectionRef = useRef(null);
   const onMessageRef = useRef(onMessage);
   
-  // Update the ref when onMessage changes
   useEffect(() => {
     onMessageRef.current = onMessage;
   }, [onMessage]);
@@ -170,7 +157,7 @@ const useWebSocket = (url, onMessage) => {
       console.log('📨 WebSocket message received:', event.data);
       try {
         const data = JSON.parse(event.data);
-        onMessageRef.current(data); 
+        onMessageRef.current(data);
       } catch (e) {
         console.error('❌ Error parsing WebSocket message:', e);
       }
@@ -180,7 +167,7 @@ const useWebSocket = (url, onMessage) => {
       console.log('❌ WebSocket disconnected. Code:', event.code, 'Reason:', event.reason);
       console.log('🔄 Attempting to reconnect in 5s...');
       connectionRef.current = null;
-      setTimeout(connect, 5000); 
+      setTimeout(connect, 5000);
     };
     
     ws.onerror = (error) => {
@@ -193,7 +180,6 @@ const useWebSocket = (url, onMessage) => {
   useEffect(() => {
     const ws = connect();
     
-    // Cleanup function: Close the WebSocket when the component unmounts
     return () => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         console.log('🧹 Cleaning up WebSocket connection');
@@ -203,53 +189,62 @@ const useWebSocket = (url, onMessage) => {
   }, [connect]);
 };
 
-// --- Helper Components ---
+// ==================== UI COMPONENTS ====================
 
+// Status Badge Component
 const StatusBadge = ({ stage, status }) => {
-  let color = 'bg-gray-200 text-gray-700';
-  let icon = '⏳';
-
-  if (status === 'queued' || stage === 1) {
-    color = 'bg-blue-100 text-blue-700';
-    icon = '📤';
-  }
-  if (status === 'started' || stage === 2 || stage === 4) {
-    color = 'bg-amber-100 text-amber-700 animate-pulse';
-    icon = '⚙️';
-  }
-  if (status === 'editing' || stage === 3) {
-    color = 'bg-sky-100 text-sky-700';
-    icon = '✏️';
-  }
-  if (status === 'completed' || stage === 5) {
-    color = 'bg-emerald-500 text-white';
-    icon = '✓';
-  }
-  if (status === 'failed') {
-    color = 'bg-red-500 text-white';
-    icon = '✕';
-  }
-
-  const stageNames = {
-    1: "Uploaded", 2: "Extracting Text", 3: "Ready to Review", 4: "Formatting", 5: "Complete"
+  const stageConfigs = {
+    1: { color: 'from-blue-100 to-blue-50', icon: '📤', text: 'Uploaded' },
+    2: { color: 'from-amber-100 to-amber-50', icon: '⚙️', text: 'Extracting Text' },
+    3: { color: 'from-sky-100 to-sky-50', icon: '✏️', text: 'Ready to Review' },
+    4: { color: 'from-indigo-100 to-indigo-50', icon: '✨', text: 'Formatting' },
+    5: { color: 'from-emerald-100 to-emerald-50', icon: '✓', text: 'Complete' },
+    failed: { color: 'from-red-100 to-red-50', icon: '✕', text: 'Failed' }
   };
 
+  const config = stageConfigs[stage] || stageConfigs[status] || stageConfigs[1];
+  
   return (
-    <div className={`px-4 py-2 text-sm font-semibold rounded-full ${color} flex items-center gap-2 shadow-sm`}>
-      <span>{icon}</span>
-      <span>{stageNames[stage] || status.toUpperCase()}</span>
+    <div className={`relative px-5 py-2.5 rounded-xl bg-gradient-to-r ${config.color} border border-white/30 shadow-lg backdrop-blur-sm flex items-center gap-3`}>
+      <span className="text-lg">{config.icon}</span>
+      <span className="font-bold text-gray-800">{config.text}</span>
+      {/* AQ Easter Egg */}
+      <div className="absolute -top-1 -right-1 text-[6px] font-mono text-blue-300/30">AQ</div>
     </div>
   );
 };
 
-// Component for Stage 2 Extraction with Image Preview
+// Loading Spinner with AQ Easter Egg
+const LoadingSpinner = ({ size = 16, color = 'text-blue-500', withAQ = true }) => (
+  <div className="relative inline-block">
+    <svg className={`animate-spin h-${size} w-${size} ${color}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+    {withAQ && (
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="text-[6px] font-mono text-current opacity-10">AQ</span>
+      </div>
+    )}
+  </div>
+);
+
+// Card Container Component
+const Card = ({ children, className = '', gradient = 'from-white/90 to-blue-50/90' }) => (
+  <div className={`relative rounded-2xl bg-gradient-to-br ${gradient} border border-white/40 shadow-xl backdrop-blur-sm overflow-hidden ${className}`}>
+    {/* Decorative corner AQ */}
+    <div className="absolute top-3 right-3 text-[8px] font-mono text-blue-200/20">AQ</div>
+    {children}
+  </div>
+);
+
+// Stage 2: Extraction Component
 const Stage2Extraction = React.memo(({ fileKey, fileData }) => {
   const [imageUrl, setImageUrl] = useState(null);
   const isPDF = fileData?.mime_type === 'application/pdf' || fileKey?.toLowerCase().endsWith('.pdf');
 
   useEffect(() => {
     if (!isPDF && fileData && fileData.data_b64) {
-      // Create object URL from base64 data for image preview
       const byteCharacters = atob(fileData.data_b64);
       const byteNumbers = new Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
@@ -260,98 +255,100 @@ const Stage2Extraction = React.memo(({ fileKey, fileData }) => {
       const url = URL.createObjectURL(blob);
       setImageUrl(url);
 
-      // Cleanup function
-      return () => {
-        URL.revokeObjectURL(url);
-      };
+      return () => URL.revokeObjectURL(url);
     }
   }, [fileData, isPDF]);
 
   return (
-    <div className="mt-4 p-6 bg-amber-50 rounded-xl border-2 border-amber-200 shadow-sm">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="text-3xl">🔍</div>
-        <h4 className="text-xl font-semibold text-amber-800">Extracting Text from Your Document</h4>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Image Preview or PDF Icon */}
+    <Card gradient="from-amber-50/80 to-orange-50/80" className="mt-6 p-8">
+      <div className="flex items-center gap-4 mb-8">
+        <div className="text-3xl bg-gradient-to-br from-amber-400 to-orange-400 p-3 rounded-xl text-white shadow-lg">🔍</div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <h4 className="text-2xl font-bold bg-gradient-to-r from-amber-800 to-orange-800 bg-clip-text text-transparent">
+            Extracting Text from Your Document
+          </h4>
+          <p className="text-sm text-amber-600/80">AI is reading your document content</p>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+        {/* Preview Section */}
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-4 px-1">
             {isPDF ? 'PDF Document' : 'Original Image'}
           </label>
           {isPDF ? (
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-white">
-              <div className="text-6xl text-red-500 mb-2">📄</div>
-              <p className="font-semibold text-gray-700">PDF Document</p>
-              <p className="text-sm text-gray-500 mt-1">Text extraction in progress...</p>
-              <p className="text-xs text-gray-400 mt-2">All pages will be processed</p>
+            <div className="relative border-2 border-dashed border-amber-300/50 rounded-2xl p-10 text-center bg-gradient-to-br from-white to-amber-50/50 backdrop-blur-sm">
+              <div className="text-7xl text-red-400/80 mb-4 drop-shadow-sm">📄</div>
+              <p className="font-bold text-gray-800 text-lg">PDF Document</p>
+              <p className="text-sm text-gray-600 mt-2">Text extraction in progress...</p>
+              <div className="mt-4 text-xs text-gray-400 font-mono">AQ Process</div>
             </div>
           ) : imageUrl ? (
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-2 bg-white">
+            <div className="border-2 border-dashed border-amber-300/50 rounded-2xl p-4 bg-gradient-to-br from-white to-amber-50/50 backdrop-blur-sm">
               <img 
                 src={imageUrl} 
                 alt="Document being processed" 
-                className="max-w-full h-auto rounded-lg shadow-sm max-h-80 object-contain mx-auto"
+                className="w-full h-64 object-contain rounded-lg shadow-inner"
               />
-              <p className="text-xs text-gray-500 text-center mt-2">
+              <p className="text-xs text-gray-500 text-center mt-3 font-mono">
                 {fileData?.name || fileKey}
               </p>
             </div>
           ) : (
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-white">
-              <p className="text-gray-500">Loading preview...</p>
+            <div className="border-2 border-dashed border-amber-300/50 rounded-2xl p-10 text-center bg-gradient-to-br from-white to-amber-50/50">
+              <LoadingSpinner size={8} color="text-amber-500" />
+              <p className="text-gray-500 mt-3">Loading preview...</p>
             </div>
           )}
         </div>
         
-        {/* Extraction Status */}
+        {/* Processing Status */}
         <div className="flex flex-col justify-center">
           <div className="text-center">
-            <svg className="animate-spin h-16 w-16 text-amber-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <p className="text-xl font-bold text-amber-800 mb-2">
+            <div className="inline-block mb-6">
+              <LoadingSpinner size={20} color="text-amber-500" />
+            </div>
+            <p className="text-2xl font-bold bg-gradient-to-r from-amber-700 to-orange-700 bg-clip-text text-transparent mb-3">
               {isPDF ? 'Reading Your PDF' : 'Reading Your Document'}
             </p>
-            <p className="text-gray-700 mb-4 text-base">
+            <p className="text-gray-700 mb-6 text-base leading-relaxed">
               {isPDF
                 ? "Please wait while we extract text from all pages. This usually takes a few moments."
                 : "Our AI is reading the text from your document. This typically completes in seconds."
               }
             </p>
-            <div className="bg-white rounded-lg p-4 border-2 border-amber-200 shadow-sm">
-              <p className="text-sm text-gray-700">
-                <span className="font-semibold">Processing:</span> {fileKey}
+            <Card gradient="from-white to-amber-50/50" className="p-6">
+              <p className="text-sm text-gray-800 font-semibold mb-2">
+                <span className="text-amber-600">Processing:</span> {fileKey}
               </p>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-600 leading-relaxed">
                 {isPDF 
                   ? "Compare the extracted text with your original PDF to verify accuracy"
                   : "Compare the extracted text with the original image to verify accuracy"
                 }
               </p>
-            </div>
+              {/* AQ Easter Egg in corner */}
+              <div className="absolute bottom-2 right-2 text-[6px] font-mono text-amber-300/30">AQ</div>
+            </Card>
           </div>
         </div>
       </div>
-    </div>
+    </Card>
   );
 });
 
-// Component for Stage 3 Interaction with Image Preview
+// Stage 3: Editor Component
 const Stage3Editor = React.memo(({ fileKey, initialText, userId, fileData }) => {
-    // Local state for editing the text before submitting to formatting
     const [editedText, setEditedText] = useState(initialText);
     const [isFormatting, setIsFormatting] = useState(false);
     const [imageUrl, setImageUrl] = useState(null);
     const isPDF = fileData?.mime_type === 'application/pdf' || fileKey?.toLowerCase().endsWith('.pdf');
 
-    // Update local state when initialText changes (e.g., when extraction completes)
     useEffect(() => {
         setEditedText(initialText);
     }, [initialText]);
 
-    // Create image preview for non-PDF files
     useEffect(() => {
       if (!isPDF && fileData && fileData.data_b64) {
         const byteCharacters = atob(fileData.data_b64);
@@ -364,9 +361,7 @@ const Stage3Editor = React.memo(({ fileKey, initialText, userId, fileData }) => 
         const url = URL.createObjectURL(blob);
         setImageUrl(url);
 
-        return () => {
-          URL.revokeObjectURL(url);
-        };
+        return () => URL.revokeObjectURL(url);
       }
     }, [fileData, isPDF]);
 
@@ -374,7 +369,6 @@ const Stage3Editor = React.memo(({ fileKey, initialText, userId, fileData }) => 
         setIsFormatting(true);
         
         try {
-            console.log('📤 Submitting format job for:', fileKey);
             const response = await fetch(`${API_URL}/api/format`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -390,7 +384,6 @@ const Stage3Editor = React.memo(({ fileKey, initialText, userId, fileData }) => 
             const result = await response.json();
             console.log('✅ Format job submitted:', result);
 
-            // Update local state and global store to indicate job started
             updateDocumentState({
                 file_name: fileKey,
                 status: 'started',
@@ -414,102 +407,131 @@ const Stage3Editor = React.memo(({ fileKey, initialText, userId, fileData }) => 
     };
 
     return (
-        <div className="mt-4 p-6 bg-blue-50 rounded-xl border-2 border-blue-200 shadow-sm">
-            <div className="flex items-center gap-3 mb-4">
-                <div className="text-3xl">✏️</div>
+        <Card gradient="from-sky-50/80 to-blue-50/80" className="mt-6 p-8">
+            <div className="flex items-center gap-4 mb-8">
+                <div className="text-3xl bg-gradient-to-br from-sky-500 to-blue-500 p-3 rounded-xl text-white shadow-lg">✏️</div>
                 <div>
-                    <h4 className="text-xl font-semibold text-blue-800">Review and Edit Your Text</h4>
-                    <p className="text-sm text-blue-600">Check the extracted text and make any corrections needed</p>
+                    <h4 className="text-2xl font-bold bg-gradient-to-r from-sky-800 to-blue-800 bg-clip-text text-transparent">
+                        Review and Edit Your Text
+                    </h4>
+                    <p className="text-sm text-sky-600/80">Check the extracted text and make any corrections needed</p>
                 </div>
             </div>
             
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4">
-                {/* Image Preview or PDF Icon */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 mb-8">
+                {/* Preview Section */}
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-semibold text-gray-700 mb-4 px-1">
                         {isPDF ? 'PDF Document Reference' : 'Original Document'}
                     </label>
                     {isPDF ? (
-                        <div className="border-2 border-gray-300 rounded-lg p-6 text-center bg-white">
-                            <div className="text-5xl text-red-500 mb-3">📄</div>
-                            <p className="font-semibold text-gray-700">PDF Document</p>
-                            <p className="text-sm text-gray-500">Compare extracted text with original PDF</p>
-                            <p className="text-xs text-gray-400 mt-2">All pages have been processed</p>
+                        <div className="border-2 border-sky-300/40 rounded-2xl p-8 text-center bg-gradient-to-br from-white to-sky-50/50 backdrop-blur-sm">
+                            <div className="text-6xl text-red-400/80 mb-4">📄</div>
+                            <p className="font-bold text-gray-800 text-lg">PDF Document</p>
+                            <p className="text-sm text-gray-600">Compare extracted text with original PDF</p>
+                            <div className="mt-4 text-xs text-gray-400 font-mono">AQ Verified</div>
                         </div>
                     ) : imageUrl ? (
-                        <div className="border-2 border-gray-300 rounded-lg p-2 bg-white">
+                        <div className="border-2 border-sky-300/40 rounded-2xl p-4 bg-gradient-to-br from-white to-sky-50/50 backdrop-blur-sm">
                             <img 
                                 src={imageUrl} 
                                 alt="Document for reference" 
-                                className="max-w-full h-auto rounded-lg shadow-sm max-h-80 object-contain mx-auto"
+                                className="w-full h-64 object-contain rounded-lg shadow-inner"
                             />
-                            <p className="text-xs text-gray-500 text-center mt-2">
+                            <p className="text-xs text-gray-500 text-center mt-3">
                                 Compare with extracted text below
                             </p>
                         </div>
                     ) : (
-                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-white">
+                        <div className="border-2 border-dashed border-sky-300/40 rounded-2xl p-10 text-center bg-gradient-to-br from-white to-sky-50/50">
                             <p className="text-gray-500">Document preview not available</p>
                         </div>
                     )}
                 </div>
                 
-                {/* Quick Tips */}
-                <div className="bg-white rounded-lg p-5 border-2 border-blue-200 shadow-sm">
-                    <div className="flex items-center gap-2 mb-3">
-                        <span className="text-2xl">💡</span>
-                        <h5 className="font-semibold text-blue-700 text-base">Helpful Tips</h5>
+                {/* Tips Section */}
+                <Card gradient="from-white to-sky-50/50" className="p-6">
+                    <div className="flex items-center gap-3 mb-5">
+                        <span className="text-2xl bg-gradient-to-br from-sky-400 to-blue-400 p-2 rounded-lg text-white shadow">💡</span>
+                        <h5 className="font-bold text-sky-800 text-lg">Helpful Tips</h5>
                     </div>
-                    <ul className="text-sm text-gray-700 space-y-2 leading-relaxed">
-                        <li className="flex items-start gap-2"><span className="text-blue-500 font-bold">•</span><span>Fix any incorrect letters or words</span></li>
-                        <li className="flex items-start gap-2"><span className="text-blue-500 font-bold">•</span><span>Adjust spacing and paragraph breaks</span></li>
-                        <li className="flex items-start gap-2"><span className="text-blue-500 font-bold">•</span><span>Double-check numbers and symbols</span></li>
-                        <li className="flex items-start gap-2"><span className="text-blue-500 font-bold">•</span><span>Look for any missing text</span></li>
-                        {isPDF && <li className="flex items-start gap-2"><span className="text-blue-500 font-bold">•</span><span>Review all pages carefully</span></li>}
+                    <ul className="space-y-4">
+                        <li className="flex items-start gap-3">
+                            <span className="text-sky-500 font-bold mt-1 text-lg">•</span>
+                            <span className="text-gray-700">Fix any incorrect letters or words</span>
+                        </li>
+                        <li className="flex items-start gap-3">
+                            <span className="text-sky-500 font-bold mt-1 text-lg">•</span>
+                            <span className="text-gray-700">Adjust spacing and paragraph breaks</span>
+                        </li>
+                        <li className="flex items-start gap-3">
+                            <span className="text-sky-500 font-bold mt-1 text-lg">•</span>
+                            <span className="text-gray-700">Double-check numbers and symbols</span>
+                        </li>
+                        <li className="flex items-start gap-3">
+                            <span className="text-sky-500 font-bold mt-1 text-lg">•</span>
+                            <span className="text-gray-700">Look for any missing text</span>
+                        </li>
+                        {isPDF && (
+                            <li className="flex items-start gap-3">
+                                <span className="text-sky-500 font-bold mt-1 text-lg">•</span>
+                                <span className="text-gray-700">Review all pages carefully</span>
+                            </li>
+                        )}
                     </ul>
-                </div>
+                    {/* AQ Easter Egg */}
+                    <div className="absolute bottom-3 right-3 text-[8px] font-mono text-sky-300/30">AQ</div>
+                </Card>
             </div>
 
-            <label className="block text-base font-semibold text-gray-800 mb-2">
+            <label className="block text-lg font-bold text-gray-800 mb-2">
                 {isPDF ? 'Text from Your PDF' : 'Text from Your Document'}
             </label>
-            <p className="text-sm text-gray-600 mb-2">Make any corrections you need, then click the button below to continue</p>
+            <p className="text-sm text-gray-600 mb-5">Make any corrections you need, then click the button below to continue</p>
             <textarea
                 value={editedText}
                 onChange={(e) => setEditedText(e.target.value)}
                 rows="12"
-                className="w-full p-4 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base resize-none shadow-sm"
+                className="w-full p-5 border-2 border-gray-300/50 rounded-2xl focus:ring-3 focus:ring-sky-500/30 focus:border-sky-400 text-base resize-none bg-white/80 backdrop-blur-sm shadow-inner"
                 placeholder="Review and correct the extracted text here..."
             />
             <button
                 onClick={handleFormat}
                 disabled={isFormatting}
-                className={`mt-4 w-full font-bold py-4 rounded-lg transition-all duration-200 text-base shadow-md ${
+                className={`relative mt-8 w-full font-bold py-5 rounded-2xl transition-all duration-300 text-lg shadow-xl overflow-hidden group ${
                     isFormatting
-                        ? 'bg-gray-400 cursor-not-allowed'
-                        : 'bg-blue-600 hover:bg-blue-700 text-white hover:shadow-lg transform hover:-translate-y-0.5'
+                        ? 'bg-gradient-to-r from-gray-400 to-gray-500 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-700 hover:to-blue-700 text-white hover:shadow-2xl'
                 }`}
             >
-                {isFormatting ? '⏳ Processing...' : '✨ Format and Summarize My Document'}
+                {isFormatting ? (
+                  <span className="flex items-center justify-center gap-3">
+                    <LoadingSpinner size={6} color="text-white" />
+                    Processing...
+                  </span>
+                ) : (
+                  <>
+                    <span className="relative z-10">✨ Format and Summarize My Document</span>
+                    <div className="absolute inset-0 bg-gradient-to-r from-sky-500/0 via-white/10 to-sky-500/0 group-hover:translate-x-full transition-transform duration-1000"></div>
+                  </>
+                )}
             </button>
-        </div>
+        </Card>
     );
 });
 
-// Component for Stage 5 Output
+// Stage 5: Output Component
 const Stage5Output = React.memo(({ fileKey, formattedText, summaryText, fileData }) => {
     const [formattedEdit, setFormattedEdit] = useState(formattedText);
     const [summaryEdit, setSummaryEdit] = useState(summaryText);
     const [imageUrl, setImageUrl] = useState(null);
     const isPDF = fileData?.mime_type === 'application/pdf' || fileKey?.toLowerCase().endsWith('.pdf');
     
-    // Update local state if the main data changes (e.g., re-formatting)
     useEffect(() => {
         setFormattedEdit(formattedText);
         setSummaryEdit(summaryText);
     }, [formattedText, summaryText]);
 
-    // Create image preview for non-PDF files
     useEffect(() => {
       if (!isPDF && fileData && fileData.data_b64) {
         const byteCharacters = atob(fileData.data_b64);
@@ -522,53 +544,42 @@ const Stage5Output = React.memo(({ fileKey, formattedText, summaryText, fileData
         const url = URL.createObjectURL(blob);
         setImageUrl(url);
 
-        return () => {
-          URL.revokeObjectURL(url);
-        };
+        return () => URL.revokeObjectURL(url);
       }
     }, [fileData, isPDF]);
     
-    // Function to download content as real PDF using jsPDF
     const downloadAsPDF = (content, filename, title) => {
         import('jspdf').then((jsPDFModule) => {
             const { jsPDF } = jsPDFModule;
-            
-            // Create new PDF document
             const doc = new jsPDF();
             
-            // Set document properties
             doc.setProperties({
                 title: title,
                 subject: 'Processed Document',
-                author: 'Handwritten Document Processor',
+                author: 'AQ Document Processor',
                 keywords: 'generated, document, text',
-                creator: 'Handwritten Document Processor'
+                creator: 'AQ Document Processor'
             });
 
-            // Add title
             doc.setFontSize(16);
             doc.setFont(undefined, 'bold');
             doc.text(title, 20, 10);
             
-            // Add generation date
             doc.setFontSize(10);
             doc.setFont(undefined, 'normal');
-            doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 20, 40);
+            doc.text(`Generated by AQ Processor on: ${new Date().toLocaleDateString()}`, 20, 40);
             
-            // Add content with proper formatting
             doc.setFontSize(11);
             const pageWidth = doc.internal.pageSize.getWidth();
             const margin = 10;
             const maxWidth = pageWidth - (2 * margin);
             
-            // Split text into lines that fit the page width
             const lines = doc.splitTextToSize(content, maxWidth - 10);
             
             let yPosition = 60;
             const lineHeight = 7;
             const pageHeight = doc.internal.pageSize.getHeight();
             
-            // Add lines to PDF with pagination
             for (let i = 0; i < lines.length; i++) {
                 if (yPosition > pageHeight - 20) {
                     doc.addPage();
@@ -578,15 +589,12 @@ const Stage5Output = React.memo(({ fileKey, formattedText, summaryText, fileData
                 yPosition += lineHeight;
             }
             
-            // Add footer on last page
             doc.setFontSize(8);
-            doc.text('Generated by Handwritten Document Processor', margin, pageHeight - 10);
+            doc.text('Generated by AQ Document Processor • Powered by AI', margin, pageHeight - 10);
             
-            // Save the PDF
             doc.save(`${filename}.pdf`);
         }).catch(error => {
             console.error('Error generating PDF:', error);
-            // Fallback to text download
             const blob = new Blob([content], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -600,32 +608,34 @@ const Stage5Output = React.memo(({ fileKey, formattedText, summaryText, fileData
     };
 
     return (
-        <div className="mt-4 p-6 bg-emerald-50 rounded-xl border-2 border-emerald-200 shadow-sm">
-            <div className="flex items-center gap-3 mb-4">
-                <div className="text-3xl">✅</div>
+        <Card gradient="from-emerald-50/80 to-green-50/80" className="mt-6 p-8">
+            <div className="flex items-center gap-4 mb-8">
+                <div className="text-3xl bg-gradient-to-br from-emerald-500 to-green-500 p-3 rounded-xl text-white shadow-lg">✅</div>
                 <div>
-                    <h4 className="text-xl font-semibold text-emerald-800">Your Documents are Ready!</h4>
-                    <p className="text-sm text-emerald-600">Download your formatted document and summary below</p>
+                    <h4 className="text-2xl font-bold bg-gradient-to-r from-emerald-800 to-green-800 bg-clip-text text-transparent">
+                        Your Documents are Ready!
+                    </h4>
+                    <p className="text-sm text-emerald-600/80">Download your formatted document and summary below</p>
                 </div>
             </div>
             
-            {/* Original Document Reference */}
-            <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+            {/* Original Reference */}
+            <div className="mb-10">
+                <label className="block text-sm font-semibold text-gray-700 mb-4 px-1">
                     Original Document Reference
                 </label>
                 {isPDF ? (
-                    <div className="border-2 border-gray-300 rounded-lg p-4 bg-white max-w-md">
-                        <div className="text-4xl text-red-500 text-center mb-2">📄</div>
-                        <p className="text-center text-sm text-gray-700">Original PDF Reference</p>
-                        <p className="text-center text-xs text-gray-500">All pages processed</p>
+                    <div className="inline-block border-2 border-emerald-300/40 rounded-2xl p-6 bg-gradient-to-br from-white to-emerald-50/50 backdrop-blur-sm">
+                        <div className="text-5xl text-red-400/80 text-center mb-3">📄</div>
+                        <p className="text-center text-base font-medium text-gray-800">Original PDF Reference</p>
+                        <p className="text-center text-xs text-gray-500">All pages processed by AQ</p>
                     </div>
                 ) : imageUrl ? (
-                    <div className="border-2 border-gray-300 rounded-lg p-2 bg-white max-w-md">
+                    <div className="inline-block border-2 border-emerald-300/40 rounded-2xl p-4 bg-gradient-to-br from-white to-emerald-50/50 backdrop-blur-sm">
                         <img 
                             src={imageUrl} 
                             alt="Original document" 
-                            className="max-w-full h-auto rounded-lg shadow-sm max-h-60 object-contain mx-auto"
+                            className="w-64 h-48 object-contain rounded-lg shadow-inner"
                         />
                     </div>
                 ) : (
@@ -633,59 +643,75 @@ const Stage5Output = React.memo(({ fileKey, formattedText, summaryText, fileData
                 )}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white p-4 rounded-lg border-2 border-emerald-200 shadow-sm">
-                    <label className="block text-base font-semibold text-gray-800 mb-2">📄 Formatted Document</label>
-                    <p className="text-xs text-gray-600 mb-2">Your document, formatted and cleaned</p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                {/* Formatted Document */}
+                <Card className="p-6">
+                    <label className="block text-base font-bold text-gray-800 mb-3 flex items-center gap-3">
+                        <span className="bg-gradient-to-br from-emerald-500 to-green-500 p-2 rounded-lg text-white shadow">📄</span>
+                        Formatted Document
+                    </label>
+                    <p className="text-xs text-gray-600 mb-4">Your document, formatted and cleaned</p>
                     <textarea
                         value={formattedEdit}
                         onChange={(e) => setFormattedEdit(e.target.value)}
                         rows="10"
-                        className="w-full p-3 border-2 border-gray-300 rounded-lg text-sm resize-none mb-3 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        className="w-full p-4 border-2 border-gray-300/50 rounded-xl text-sm resize-none mb-5 focus:ring-3 focus:ring-emerald-500/30 focus:border-emerald-400 bg-white/90 backdrop-blur-sm shadow-inner"
                     />
                     <button
                         onClick={() => downloadAsPDF(formattedEdit, `formatted_${fileKey.replace('.pdf', '').replace('.jpg', '').replace('.png', '')}`, `Formatted Document - ${fileKey}`)}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                        className="relative w-full bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold py-4 rounded-xl transition-all duration-300 shadow-lg hover:shadow-2xl group overflow-hidden"
                     >
-                        📥 Download Formatted Document
+                        <span className="relative z-10">📥 Download Formatted Document</span>
+                        <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/0 via-white/10 to-emerald-500/0 group-hover:translate-x-full transition-transform duration-1000"></div>
                     </button>
-                </div>
-                <div className="bg-white p-4 rounded-lg border-2 border-emerald-200 shadow-sm">
-                    <label className="block text-base font-semibold text-gray-800 mb-2">📝 Summary</label>
-                    <p className="text-xs text-gray-600 mb-2">Key points from your document</p>
+                </Card>
+                
+                {/* Summary */}
+                <Card className="p-6">
+                    <label className="block text-base font-bold text-gray-800 mb-3 flex items-center gap-3">
+                        <span className="bg-gradient-to-br from-emerald-500 to-green-500 p-2 rounded-lg text-white shadow">📝</span>
+                        Summary
+                    </label>
+                    <p className="text-xs text-gray-600 mb-4">Key points from your document</p>
                     <textarea
                         value={summaryEdit}
                         onChange={(e) => setSummaryEdit(e.target.value)}
                         rows="10"
-                        className="w-full p-3 border-2 border-gray-300 rounded-lg text-sm resize-none mb-3 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        className="w-full p-4 border-2 border-gray-300/50 rounded-xl text-sm resize-none mb-5 focus:ring-3 focus:ring-emerald-500/30 focus:border-emerald-400 bg-white/90 backdrop-blur-sm shadow-inner"
                     />
                     <button
                         onClick={() => downloadAsPDF(summaryEdit, `summary_${fileKey.replace('.pdf', '').replace('.jpg', '').replace('.png', '')}`, `Document Summary - ${fileKey}`)}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                        className="relative w-full bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold py-4 rounded-xl transition-all duration-300 shadow-lg hover:shadow-2xl group overflow-hidden"
                     >
-                        📥 Download Summary
+                        <span className="relative z-10">📥 Download Summary</span>
+                        <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/0 via-white/10 to-emerald-500/0 group-hover:translate-x-full transition-transform duration-1000"></div>
                     </button>
-                </div>
+                </Card>
             </div>
-        </div>
+            
+            {/* AQ Easter Egg in footer */}
+            <div className="text-center mt-8 pt-6 border-t border-emerald-200/50">
+                <p className="text-xs text-gray-400 font-mono">Process completed with AQ intelligence</p>
+            </div>
+        </Card>
     );
 });
 
-// The main component that displays one document's workflow
+// Main Document Card Component
 const DocumentCard = React.memo(({ fileKey, documentData, fileData }) => {
-    const { status, stage, extract_job_id, extracted_text, formatted_text, summary_text } = documentData;
+    const { status, stage, extracted_text, formatted_text, summary_text } = documentData;
     
     return (
-        <div className="bg-white p-6 rounded-xl shadow-lg border-l-4 border-blue-500 mb-6 hover:shadow-xl transition-shadow duration-200">
-            <div className="flex justify-between items-start mb-4 gap-4">
-                <div className="flex-1">
-                    <h3 className="text-xl font-bold text-gray-800 break-words mb-1">{fileKey}</h3>
+        <Card className="p-6 mb-8 hover:shadow-2xl transition-all duration-300 hover:border-blue-300/50">
+            <div className="flex justify-between items-start mb-6 gap-6">
+                <div className="flex-1 min-w-0">
+                    <h3 className="text-xl font-bold text-gray-800 truncate mb-2">{fileKey}</h3>
                     <p className="text-sm text-gray-500">Document processing workflow</p>
                 </div>
                 <StatusBadge stage={stage} status={status} />
             </div>
 
-            {/* Stage 2 Extraction with Image Preview */}
+            {/* Stage 2 Extraction */}
             {stage === 2 && (
                 <Stage2Extraction 
                     fileKey={fileKey}
@@ -693,16 +719,18 @@ const DocumentCard = React.memo(({ fileKey, documentData, fileData }) => {
                 />
             )}
 
-            {/* Stage 4 Loading Spinner */}
+            {/* Stage 4 Loading */}
             {stage === 4 && (
-                <div className="text-center py-12 bg-gradient-to-br from-blue-50 to-sky-50 rounded-xl border-2 border-blue-200 shadow-sm">
-                    <svg className="animate-spin h-16 w-16 text-blue-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <p className="text-xl font-bold text-blue-800 mb-2">Formatting Your Document</p>
-                    <p className="text-gray-600">Our AI is polishing your document and creating a summary. Almost done!</p>
-                </div>
+                <Card gradient="from-sky-50/80 to-blue-50/80" className="py-12 text-center">
+                    <div className="inline-block mb-6">
+                        <LoadingSpinner size={20} color="text-sky-500" />
+                    </div>
+                    <p className="text-2xl font-bold bg-gradient-to-r from-sky-700 to-blue-700 bg-clip-text text-transparent mb-3">
+                        Formatting Your Document
+                    </p>
+                    <p className="text-gray-600 max-w-md mx-auto">Our AI is polishing your document and creating a summary. Almost done!</p>
+                    <div className="mt-6 text-xs text-gray-400 font-mono">AQ Processing...</div>
+                </Card>
             )}
             
             {/* Stage 3 Editing */}
@@ -724,50 +752,40 @@ const DocumentCard = React.memo(({ fileKey, documentData, fileData }) => {
                     fileData={fileData}
                 />
             )}
-
-        </div>
+        </Card>
     );
 });
 
-// --- Main Application Component ---
+// ==================== MAIN APP COMPONENT ====================
 const App = () => {
     const { documents } = useDocumentStore();
     const [files, setFiles] = useState([]);
     const [fileDataMap, setFileDataMap] = useState({});
     const [isUploading, setIsUploading] = useState(false);
     
-    // Use the getWsUrl function to construct the WebSocket URL
     const websocketUrl = getWsUrl();
     
-    // WebSocket message handler
     const handleWsMessage = useCallback((update) => {
         console.log('🔄 Processing WebSocket update:', update);
         updateDocumentState(update);
     }, []);
 
-    // Initialize the WebSocket connection
-    useWebSocket(websocketUrl, handleWsMessage); 
+    useWebSocket(websocketUrl, handleWsMessage);
     
-    // --- File Upload Logic ---
     const handleUpload = async () => {
         if (files.length === 0) return;
         setIsUploading(true);
         
-        // Store file data for image preview
         const newFileDataMap = { ...fileDataMap };
-        
-        // Create form data payload for the API
         const formData = new FormData();
         formData.append('user_id', USER_ID);
         
-        // Read files and store data for preview
         for (const file of files) {
             formData.append('files', file);
             
-            // Store file data for preview
             const reader = new FileReader();
             reader.onload = (e) => {
-                const base64 = e.target.result.split(',')[1]; // Remove data:image/... prefix
+                const base64 = e.target.result.split(',')[1];
                 newFileDataMap[file.name] = {
                     name: file.name,
                     data_b64: base64,
@@ -790,26 +808,22 @@ const App = () => {
             
             console.log('✅ Upload response:', results);
             
-            // Initialize state for each submitted job based on API response
             const newDocuments = { ...documents };
             results.job_submissions.forEach(job => {
                 newDocuments[job.file_name] = {
                     file_name: job.file_name,
                     status: 'started',
-                    stage: 2, // Start at stage 2 (extracting)
+                    stage: 2,
                     extract_job_id: job.job_id,
                     extracted_text: '',
                     edited_text: '',
                     formatted_text: '',
                     summary_text: '',
                 };
-                console.log(`📝 Created document state for: ${job.file_name}`);
             });
             
             documentStore.setState({ documents: newDocuments });
-            setFiles([]); // Clear file input after submission
-            
-            console.log(`📊 Total documents in state: ${Object.keys(newDocuments).length}`);
+            setFiles([]);
             
         } catch (error) {
             console.error('❌ Error during upload:', error);
@@ -819,9 +833,7 @@ const App = () => {
         }
     };
 
-    // Sort documents by stage to show completed ones at bottom
     const sortedDocuments = Object.entries(documents).sort(([,a], [,b]) => {
-        // Show in-progress documents first, then completed
         if (a.stage === 5 && b.stage !== 5) return 1;
         if (b.stage === 5 && a.stage !== 5) return -1;
         return 0;
@@ -837,94 +849,159 @@ const App = () => {
     ));
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-sky-50 p-4 sm:p-8 font-sans">
-            <div className="max-w-6xl mx-auto">
-                <div className="text-center mb-8">
-                    <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-800 mb-2">
-                        Document Processor
-                    </h1>
-                    <p className="text-lg text-gray-600">Transform handwritten notes and PDFs into formatted digital text</p>
+        <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-600 to-white font-sans overflow-x-hidden">
+            {/* Background decorative elements */}
+            <div className="absolute inset-0 overflow-hidden">
+                <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-400/10 rounded-full blur-3xl"></div>
+                <div className="absolute top-1/4 -left-20 w-60 h-60 bg-sky-400/10 rounded-full blur-3xl"></div>
+                <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-white/5 rounded-full blur-3xl"></div>
+                {/* Hidden AQ pattern in background */}
+                <div className="absolute inset-0 opacity-5">
+                    <div className="absolute top-10 left-10 text-4xl font-mono text-white rotate-12">AQ</div>
+                    <div className="absolute top-1/3 right-20 text-3xl font-mono text-white -rotate-12">AQ</div>
+                    <div className="absolute bottom-20 left-1/4 text-5xl font-mono text-white rotate-45">AQ</div>
                 </div>
+            </div>
+
+            <div className="relative max-w-7xl mx-auto px-4 sm:px-8 py-8">
+                {/* Header */}
+                <header className="text-center mb-16 pt-8">
+                    <div className="inline-block mb-6">
+                        <div className="text-5xl bg-gradient-to-br from-white to-blue-100 p-4 rounded-2xl shadow-2xl mb-4">
+                            📄✨
+                        </div>
+                    </div>
+                    <h1 className="text-5xl sm:text-7xl font-black mb-6">
+                        <span className="bg-gradient-to-r from-white via-blue-100 to-white bg-clip-text text-transparent">
+                            AQ Document
+                        </span>
+                        <br />
+                        <span className="bg-gradient-to-r from-blue-200 via-white to-blue-200 bg-clip-text text-transparent">
+                            Processor
+                        </span>
+                    </h1>
+                    <p className="text-xl text-white/90 max-w-2xl mx-auto mb-8 leading-relaxed">
+                        Transform handwritten notes and PDFs into beautifully formatted digital text with AI-powered processing
+                    </p>
+                    {/* AQ Easter Egg in header */}
+                    <div className="text-xs font-mono text-white/30 tracking-widest">ADVANCED QUALITY PROCESSING</div>
+                </header>
 
                 {/* Upload Section */}
-                <div className="bg-white p-6 sm:p-8 rounded-xl shadow-lg mb-8 border-2 border-blue-200">
-                    <div className="flex items-center gap-3 mb-4">
-                        <span className="text-3xl">📤</span>
+                <Card className="p-10 mb-12">
+                    <div className="flex items-center gap-6 mb-10">
+                        <div className="text-4xl bg-gradient-to-br from-blue-500 to-sky-500 p-4 rounded-2xl text-white shadow-2xl">📤</div>
                         <div>
-                            <h2 className="text-2xl font-bold text-gray-800">Upload Your Documents</h2>
-                            <p className="text-sm text-gray-600">Choose one or more image or PDF files to get started</p>
+                            <h2 className="text-4xl font-black bg-gradient-to-r from-blue-800 to-sky-800 bg-clip-text text-transparent">
+                                Upload Your Documents
+                            </h2>
+                            <p className="text-base text-gray-600 mt-2">Choose one or more image or PDF files to get started</p>
                         </div>
                     </div>
                     
-                    <div className="bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg p-6 mb-4 text-center hover:border-blue-400 transition-colors">
-                        <input
-                            type="file"
-                            multiple
-                            accept=".png,.jpg,.jpeg,.pdf"
-                            onChange={(e) => setFiles(Array.from(e.target.files))}
-                            className="block w-full text-base text-gray-700 file:mr-4 file:py-3 file:px-6 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 file:cursor-pointer cursor-pointer"
-                        />
-                        <p className="mt-3 text-sm text-gray-600">Supports: PNG, JPG, and PDF files</p>
+                    <div className="relative mb-10">
+                        <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-sky-500/10 rounded-2xl blur-xl"></div>
+                        <div className="relative border-3 border-dashed border-white/30 rounded-2xl p-10 text-center bg-gradient-to-br from-white/90 to-blue-50/90 backdrop-blur-sm">
+                            <input
+                                type="file"
+                                multiple
+                                accept=".png,.jpg,.jpeg,.pdf"
+                                onChange={(e) => setFiles(Array.from(e.target.files))}
+                                className="block w-full text-lg text-gray-700 file:mr-6 file:py-5 file:px-10 file:rounded-full file:border-0 file:text-lg file:font-bold file:bg-gradient-to-r file:from-blue-600 file:to-sky-600 file:text-white hover:file:from-blue-700 hover:file:to-sky-700 file:cursor-pointer cursor-pointer backdrop-blur-sm"
+                            />
+                            <p className="mt-6 text-sm text-gray-600">Supports: PNG, JPG, and PDF files</p>
+                            {/* AQ Easter Egg */}
+                            <div className="absolute -bottom-2 -right-2 text-[10px] font-mono text-blue-300/30 rotate-12">AQ</div>
+                        </div>
                     </div>
 
                     {files.length > 0 && (
-                        <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                            <p className="font-semibold text-gray-800 mb-2">Selected files ({files.length}):</p>
-                            <ul className="text-sm text-gray-700 space-y-1">
+                        <Card gradient="from-blue-50 to-sky-50" className="mb-10 p-8">
+                            <p className="font-bold text-gray-800 mb-4 text-lg">Selected files ({files.length}):</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 {files.map((f, idx) => (
-                                    <li key={idx} className="flex items-center gap-2">
-                                        <span className="text-blue-500">✓</span>
-                                        <span>{f.name}</span>
-                                    </li>
+                                    <div key={idx} className="flex items-center gap-4 bg-white/80 p-4 rounded-xl border border-blue-200/50">
+                                        <span className="text-blue-500 bg-blue-100 p-2 rounded-full">✓</span>
+                                        <span className="font-medium truncate">{f.name}</span>
+                                        <span className="text-xs text-gray-500 ml-auto">{Math.round(f.size / 1024)}KB</span>
+                                    </div>
                                 ))}
-                            </ul>
-                        </div>
+                            </div>
+                        </Card>
                     )}
 
                     <button
                         onClick={handleUpload}
                         disabled={files.length === 0 || isUploading}
-                        className={`w-full text-white font-bold py-4 rounded-lg transition-all duration-200 text-lg shadow-md ${
+                        className={`relative w-full text-white font-black py-6 rounded-2xl transition-all duration-300 text-xl shadow-2xl overflow-hidden group ${
                             files.length === 0 || isUploading
-                                ? 'bg-gray-400 cursor-not-allowed'
-                                : 'bg-blue-600 hover:bg-blue-700 hover:shadow-lg transform hover:-translate-y-0.5'
+                                ? 'bg-gradient-to-r from-gray-400 to-gray-500 cursor-not-allowed'
+                                : 'bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 hover:shadow-3xl'
                         }`}
                     >
-                        {isUploading ? '⏳ Processing Your Files...' : files.length > 0 ? `✨ Process ${files.length} Document${files.length > 1 ? 's' : ''}` : '📤 Select Files to Begin'}
+                        {isUploading ? (
+                          <span className="flex items-center justify-center gap-4">
+                            <LoadingSpinner size={8} color="text-white" />
+                            Processing Your Files...
+                          </span>
+                        ) : files.length > 0 ? (
+                          <>
+                            <span className="relative z-10">✨ Process {files.length} Document{files.length > 1 ? 's' : ''}</span>
+                            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-white/20 to-sky-500/0 group-hover:translate-x-full transition-transform duration-1000"></div>
+                          </>
+                        ) : '📤 Select Files to Begin'}
+                        {/* AQ Easter Egg on button */}
+                        <div className="absolute -bottom-1 -right-1 text-[8px] font-mono text-white/20">AQ</div>
                     </button>
-                </div>
+                </Card>
                 
-                {/* Document Dashboard */}
+                {/* Documents Dashboard */}
                 {Object.keys(documents).length > 0 && (
-                    <div className="bg-white p-4 rounded-xl shadow-md mb-6 border-2 border-gray-200">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <span className="text-2xl">📊</span>
-                                <h2 className="text-2xl font-bold text-gray-800">
-                                    Your Documents
-                                </h2>
+                    <Card className="p-8 mb-10">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+                            <div className="flex items-center gap-6">
+                                <span className="text-4xl bg-gradient-to-br from-blue-500 to-purple-500 p-3 rounded-2xl text-white shadow-lg">📊</span>
+                                <div>
+                                    <h2 className="text-3xl font-black bg-gradient-to-r from-blue-800 to-purple-800 bg-clip-text text-transparent">
+                                        Your Documents
+                                    </h2>
+                                    <p className="text-sm text-gray-600">Real-time processing dashboard</p>
+                                </div>
                             </div>
-                            <div className="bg-blue-100 text-blue-700 px-4 py-2 rounded-full font-semibold text-sm">
+                            <div className="bg-gradient-to-r from-blue-100 to-purple-100 text-blue-800 px-6 py-3 rounded-xl font-bold text-sm border border-blue-200/50 shadow-sm">
                                 {Object.keys(documents).length} document{Object.keys(documents).length !== 1 ? 's' : ''}
                             </div>
                         </div>
-                    </div>
+                    </Card>
                 )}
                 
+                {/* Document Cards */}
                 {DocumentCards.length > 0 ? (
-                    <div className="space-y-6">
+                    <div className="space-y-8">
                         {DocumentCards}
                     </div>
                 ) : (
-                    <div className="text-center py-16 bg-white rounded-xl shadow-md border-2 border-dashed border-gray-300">
-                        <div className="text-6xl mb-4">📄</div>
-                        <p className="text-xl font-semibold text-gray-700 mb-2">No Documents Yet</p>
-                        <p className="text-gray-500">Upload your first document above to get started</p>
-                    </div>
+                    <Card className="text-center py-20">
+                        <div className="text-8xl mb-8 bg-gradient-to-r from-gray-300 to-gray-400 bg-clip-text text-transparent">📄</div>
+                        <p className="text-3xl font-black bg-gradient-to-r from-gray-500 to-gray-600 bg-clip-text text-transparent mb-4">
+                            No Documents Yet
+                        </p>
+                        <p className="text-gray-600 max-w-md mx-auto text-lg">
+                            Upload your first document above to begin the AI-powered transformation process
+                        </p>
+                        {/* AQ Easter Egg */}
+                        <div className="mt-8 text-xs font-mono text-gray-400">AQ Ready • AI Powered • Real-time</div>
+                    </Card>
                 )}
                 
-                <footer className="text-center mt-12 pt-6 text-xs text-gray-400">
-                    <p>Powered by AI • Real-time Processing</p>
+                {/* Footer */}
+                <footer className="text-center mt-20 pt-10 border-t border-white/20">
+                    <div className="text-sm text-white/60 mb-2">
+                        Powered by Advanced Quality AI • Real-time Processing
+                    </div>
+                    <div className="text-xs text-white/40 font-mono tracking-widest">
+                        AQ DOCUMENT PROCESSOR v1.0
+                    </div>
                 </footer>
             </div>
         </div>
